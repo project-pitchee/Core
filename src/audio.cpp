@@ -192,6 +192,55 @@ std::vector<float> concatenate_speech(
     return speech;
 }
 
+std::pair<double, double> map_speech_range_to_source(
+    const std::vector<VadSegment>& segments,
+    double speech_start_seconds,
+    double speech_end_seconds
+) {
+    if (segments.empty()) return {0.0, 0.0};
+
+    const double total_speech_seconds = segments.back().speech_end_seconds;
+    const double start = std::max(
+        0.0,
+        std::min(total_speech_seconds, speech_start_seconds)
+    );
+    const double end = std::max(
+        start,
+        std::min(total_speech_seconds, speech_end_seconds)
+    );
+    constexpr double kBoundaryEpsilon = 1e-9;
+    double source_start = segments.back().source_start_seconds;
+    double source_end = segments.back().source_end_seconds;
+
+    // At a boundary, a window start belongs to the following speech segment;
+    // a window end belongs to the preceding one. This preserves the full
+    // original-time span even when the window crosses removed silence.
+    for (const auto& segment : segments) {
+        if (start < segment.speech_end_seconds - kBoundaryEpsilon) {
+            const double offset = std::max(
+                0.0,
+                start - segment.speech_start_seconds
+            );
+            source_start = segment.source_start_seconds + offset;
+            break;
+        }
+    }
+    for (const auto& segment : segments) {
+        if (end <= segment.speech_end_seconds + kBoundaryEpsilon) {
+            const double offset = std::max(
+                0.0,
+                std::min(
+                    segment.speech_end_seconds - segment.speech_start_seconds,
+                    end - segment.speech_start_seconds
+                )
+            );
+            source_end = segment.source_start_seconds + offset;
+            break;
+        }
+    }
+    return {source_start, std::max(source_start, source_end)};
+}
+
 std::vector<float> crop_patch(const std::vector<float>& signal, size_t start) {
     std::vector<float> patch(kPatchSamples, 0.0f);
     if (start >= signal.size()) return patch;

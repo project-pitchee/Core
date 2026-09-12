@@ -124,11 +124,12 @@ The result is deliberately data-only:
 }
 ```
 
-`f0.windows` and `naturalness.windows` use the original analyzed-audio
-timeline. `vfp.windows` uses the concatenated speech timeline described by
-`vad.segments[].speech_start_seconds` and `speech_end_seconds`. There is no
-timeline geometry, color band, label, player state, or other UI concept in the
-result.
+`f0.windows`, `naturalness.windows`, and `vfp.windows` all expose the original
+analyzed-audio timeline. VFP inference internally uses concatenated speech, and
+each window's source start/end is mapped through `vad.segments`. A window that
+crosses multiple retained speech segments therefore spans the removed silence
+between them. There is no timeline geometry, color band, label, player state,
+or other UI concept in the result.
 
 ## Composite score helper
 

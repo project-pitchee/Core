@@ -6,6 +6,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace pitchee {
@@ -134,6 +135,12 @@ std::vector<float> resample_mono(
 std::vector<float> concatenate_speech(
     const std::vector<float>& samples,
     const std::vector<VadSegment>& segments
+);
+
+std::pair<double, double> map_speech_range_to_source(
+    const std::vector<VadSegment>& segments,
+    double speech_start_seconds,
+    double speech_end_seconds
 );
 
 std::vector<float> crop_patch(const std::vector<float>& signal, size_t start);

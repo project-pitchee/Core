@@ -462,14 +462,21 @@ pitchee_status_t pitchee_analyzer_analyze_pcm(
             / pitchee::kSampleRate;
         result.vfp_windows.reserve(starts.size());
         for (size_t index = 0; index < starts.size(); ++index) {
-            const double start_seconds = static_cast<double>(starts[index])
+            const double speech_start_seconds = static_cast<double>(starts[index])
                 / pitchee::kSampleRate;
+            const double speech_end_seconds = std::min(
+                speech_seconds,
+                speech_start_seconds + result.window_duration_seconds
+            );
+            const auto [start_seconds, end_seconds] =
+                pitchee::map_speech_range_to_source(
+                    vad.segments,
+                    speech_start_seconds,
+                    speech_end_seconds
+                );
             pitchee::VfpWindow window;
             window.start_seconds = start_seconds;
-            window.end_seconds = std::min(
-                speech_seconds,
-                start_seconds + result.window_duration_seconds
-            );
+            window.end_seconds = end_seconds;
             window.vfp_standard_score = std::max(
                 0.0,
                 std::min(100.0, probabilities[index] * 100.0)

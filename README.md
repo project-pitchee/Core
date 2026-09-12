@@ -243,7 +243,7 @@ int main(void) {
     "window_count": 1,
     "window_duration_seconds": 1.505,
     "windows": [
-      {"start_seconds": 0.0, "end_seconds": 1.505, "vfp_standard_score": 3.47584}
+      {"start_seconds": 0.753, "end_seconds": 4.625, "vfp_standard_score": 3.47584}
     ]
   },
   "naturalness": {
@@ -346,9 +346,13 @@ end_seconds - start_seconds
 
 | 字段 | 单位/范围 | 含义 |
 | --- | --- | --- |
-| `start_seconds` | 秒 | 窗口在拼接语音缓冲区时间轴上的起点。 |
-| `end_seconds` | 秒 | 窗口在拼接语音缓冲区时间轴上的终点。 |
+| `start_seconds` | 秒 | 窗口映射到原始分析音频时间轴后的起点。 |
+| `end_seconds` | 秒 | 窗口映射到原始分析音频时间轴后的终点。 |
 | `vfp_standard_score` | `0–100` | 当前窗口概率乘以 100。 |
+
+VFP 推理仍使用拼接后的连续语音缓冲区。返回窗口时间时，起点会映射到该位置
+所在语音段的起点，终点映射到该位置所在语音段的终点。如果窗口跨越多个语音段，
+则 `end_seconds - start_seconds` 会包含期间被 VAD 去掉的静音。
 
 ### `naturalness`
 
