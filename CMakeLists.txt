@@ -126,6 +126,11 @@ if(PITCHEE_BUILD_TESTS)
     target_link_libraries(pitchee_core_tests PRIVATE pitchee_core)
     add_test(NAME pitchee_core_tests COMMAND pitchee_core_tests)
 
+    add_executable(pitchee_resample_test tests/resample_test.cpp src/audio.cpp)
+    target_compile_features(pitchee_resample_test PRIVATE cxx_std_17)
+    target_include_directories(pitchee_resample_test PRIVATE src)
+    add_test(NAME pitchee_resample_test COMMAND pitchee_resample_test)
+
     add_executable(pitchee_c_abi_test tests/c_abi_test.c)
     target_link_libraries(pitchee_c_abi_test PRIVATE pitchee_core)
     add_test(NAME pitchee_c_abi_test COMMAND pitchee_c_abi_test)

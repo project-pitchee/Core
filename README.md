@@ -263,7 +263,7 @@ int main(void) {
 | `source_sample_rate` | Hz | 调用方传入的原始采样率。 |
 | `source_channels` | 数量 | 原始声道数。`1` 为 mono；大于 1 为 interleaved。 |
 | `input_seconds` | 秒 | 重采样到 16 kHz 后的输入时长。 |
-| `analyzed_seconds` | 秒 | 实际分析的时长。当前与 `input_seconds` 相同。 |
+| `analyzed_seconds` | 秒 | 实际分析的时长；当前不设最大时长限制。 |
 
 `input_seconds` 是 Core 实际接收到的重采样 PCM 时长，不一定与压缩音频文件
 容器声明的时长完全相同。Core 不再截断音频，因此 `analyzed_seconds` 当前等于

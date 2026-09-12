@@ -356,6 +356,12 @@ pitchee_status_t pitchee_analyzer_analyze_pcm(
         );
         const double source_seconds =
             static_cast<double>(signal.size()) / pitchee::kSampleRate;
+        if (std::isfinite(pitchee::kMaximumSeconds)) {
+            const size_t maximum_samples = static_cast<size_t>(
+                pitchee::kMaximumSeconds * pitchee::kSampleRate
+            );
+            if (signal.size() > maximum_samples) signal.resize(maximum_samples);
+        }
         if (signal.empty()) throw std::invalid_argument("empty audio");
 
         report_phase(phase_callback, user_data, PITCHEE_PHASE_ANALYZING);
