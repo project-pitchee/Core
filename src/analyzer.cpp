@@ -30,6 +30,33 @@ namespace {
 
 constexpr double kF0WindowSeconds = 0.1;
 
+struct ProgressReporter {
+    pitchee_phase_callback_t phase_callback = nullptr;
+    void* phase_user_data = nullptr;
+    pitchee_progress_callback_t progress_callback = nullptr;
+    void* progress_user_data = nullptr;
+
+    void phase(pitchee_analysis_phase_t value) const {
+        if (phase_callback) phase_callback(value, phase_user_data);
+    }
+
+    void progress(
+        pitchee_progress_stage_t stage,
+        uint64_t completed,
+        uint64_t total
+    ) const {
+        if (!progress_callback) return;
+        pitchee_progress_t progress{};
+        progress.stage = stage;
+        progress.completed = std::min(completed, total);
+        progress.total = total;
+        progress.fraction = total > 0
+            ? static_cast<double>(progress.completed) / total
+            : (stage == PITCHEE_PROGRESS_STAGE_COMPLETED ? 1.0 : 0.0);
+        progress_callback(&progress, progress_user_data);
+    }
+};
+
 void set_error(char* target, size_t capacity, const std::string& message) {
     if (!target || capacity == 0) return;
     const size_t count = std::min(capacity - 1, message.size());
@@ -59,18 +86,12 @@ pitchee_status_t status_for_exception(const std::exception& error) {
     return PITCHEE_ERROR_INTERNAL;
 }
 
-void report_phase(
-    pitchee_phase_callback_t callback,
-    void* user_data,
-    pitchee_analysis_phase_t phase
-) {
-    if (callback) callback(phase, user_data);
-}
-
 pitchee::PitchResult analyze_pitch(
     pitchee::OrtModel& model,
-    const std::vector<float>& samples
+    const std::vector<float>& samples,
+    const ProgressReporter& reporter
 ) {
+    reporter.progress(PITCHEE_PROGRESS_STAGE_ANALYZING_F0, 0, 1);
     std::vector<float> input = samples;
     if (input.size() < 256) input.resize(256, 0.0f);
     pitchee::Tensor tensor;
@@ -153,16 +174,20 @@ pitchee::PitchResult analyze_pitch(
         result.standard_deviation_f0_hz = std::sqrt(variance / voiced_pitch.size());
         result.voiced_frame_count = static_cast<int>(voiced_pitch.size());
     }
+    reporter.progress(PITCHEE_PROGRESS_STAGE_ANALYZING_F0, 1, 1);
     return result;
 }
 
 std::vector<std::vector<float>> embed_waveforms(
     pitchee::OrtModel& frontend,
     pitchee::OrtModel& encoder,
-    const std::vector<std::vector<float>>& waveforms
+    const std::vector<std::vector<float>>& waveforms,
+    const ProgressReporter& reporter,
+    pitchee_progress_stage_t stage
 ) {
     std::vector<std::vector<float>> embeddings;
     embeddings.reserve(waveforms.size());
+    reporter.progress(stage, 0, waveforms.size());
     for (size_t batch_start = 0;
          batch_start < waveforms.size();
          batch_start += pitchee::kEmbeddingBatchSize) {
@@ -213,16 +238,30 @@ std::vector<std::vector<float>> embed_waveforms(
                 start + pitchee::kEmbeddingDimensions
             );
         }
+        reporter.progress(
+            stage,
+            std::min(
+                waveforms.size(),
+                batch_start + pitchee::kEmbeddingBatchSize
+            ),
+            waveforms.size()
+        );
     }
     return embeddings;
 }
 
 std::vector<double> classify_embeddings(
     pitchee::OrtModel& model,
-    const std::vector<std::vector<float>>& embeddings
+    const std::vector<std::vector<float>>& embeddings,
+    const ProgressReporter& reporter
 ) {
     std::vector<double> probabilities;
     probabilities.reserve(embeddings.size());
+    reporter.progress(
+        PITCHEE_PROGRESS_STAGE_CLASSIFYING_VFP_WINDOWS,
+        0,
+        embeddings.size()
+    );
     for (size_t batch_start = 0;
          batch_start < embeddings.size();
          batch_start += pitchee::kEmbeddingBatchSize) {
@@ -261,6 +300,14 @@ std::vector<double> classify_embeddings(
         for (size_t index = 0; index < real_count; ++index) {
             probabilities.push_back(output.values[index]);
         }
+        reporter.progress(
+            PITCHEE_PROGRESS_STAGE_CLASSIFYING_VFP_WINDOWS,
+            std::min(
+                embeddings.size(),
+                batch_start + pitchee::kEmbeddingBatchSize
+            ),
+            embeddings.size()
+        );
     }
     return probabilities;
 }
@@ -368,14 +415,13 @@ void pitchee_analyzer_destroy(pitchee_analyzer_t* analyzer) {
     delete analyzer;
 }
 
-pitchee_status_t pitchee_analyzer_analyze_pcm(
+pitchee_status_t analyze_pcm_impl(
     pitchee_analyzer_t* analyzer,
     const float* samples,
     size_t sample_count,
     int32_t sample_rate,
     int32_t channels,
-    pitchee_phase_callback_t phase_callback,
-    void* user_data,
+    const ProgressReporter& reporter,
     char** out_json,
     char* error_message,
     size_t error_message_capacity
@@ -387,7 +433,9 @@ pitchee_status_t pitchee_analyzer_analyze_pcm(
     }
     *out_json = nullptr;
     try {
-        report_phase(phase_callback, user_data, PITCHEE_PHASE_LOADING_AUDIO);
+        reporter.phase(PITCHEE_PHASE_LOADING_AUDIO);
+        reporter.progress(PITCHEE_PROGRESS_STAGE_LOADING_AUDIO, 1, 1);
+        reporter.progress(PITCHEE_PROGRESS_STAGE_RESAMPLING_AUDIO, 0, 1);
         std::vector<float> signal = pitchee::resample_mono(
             samples,
             sample_count,
@@ -404,15 +452,27 @@ pitchee_status_t pitchee_analyzer_analyze_pcm(
             if (signal.size() > maximum_samples) signal.resize(maximum_samples);
         }
         if (signal.empty()) throw std::invalid_argument("empty audio");
+        reporter.progress(PITCHEE_PROGRESS_STAGE_RESAMPLING_AUDIO, 1, 1);
 
-        report_phase(phase_callback, user_data, PITCHEE_PHASE_ANALYZING);
-        const auto pitch = analyze_pitch(*analyzer->swift_f0, signal);
-        auto vad = analyzer->vad->detect(signal);
+        reporter.phase(PITCHEE_PHASE_ANALYZING);
+        const auto pitch = analyze_pitch(*analyzer->swift_f0, signal, reporter);
+        auto vad = analyzer->vad->detect(
+            signal,
+            [&reporter](size_t completed, size_t total) {
+                reporter.progress(
+                    PITCHEE_PROGRESS_STAGE_DETECTING_SPEECH,
+                    completed,
+                    total
+                );
+            }
+        );
         if (vad.segments.empty()) {
             throw std::runtime_error("Silero VAD detected no speech");
         }
+        reporter.progress(PITCHEE_PROGRESS_STAGE_PREPARING_VFP_WINDOWS, 0, 1);
         const auto speech = pitchee::concatenate_speech(signal, vad.segments);
         if (speech.empty()) throw std::runtime_error("Silero VAD detected no speech");
+        reporter.progress(PITCHEE_PROGRESS_STAGE_PREPARING_VFP_WINDOWS, 1, 1);
 
         const auto starts = pitchee::sliding_patch_starts(speech.size());
         std::vector<std::vector<float>> speech_patches;
@@ -423,14 +483,22 @@ pitchee_status_t pitchee_analyzer_analyze_pcm(
         const auto speech_embeddings = embed_waveforms(
             *analyzer->ecapa_frontend,
             *analyzer->ecapa,
-            speech_patches
+            speech_patches,
+            reporter,
+            PITCHEE_PROGRESS_STAGE_EXTRACTING_VFP_EMBEDDINGS
         );
         const auto probabilities = classify_embeddings(
             *analyzer->vfp_head,
-            speech_embeddings
+            speech_embeddings,
+            reporter
         );
         if (probabilities.empty()) throw std::runtime_error("no VFP windows");
 
+        reporter.progress(
+            PITCHEE_PROGRESS_STAGE_PREPARING_NATURALNESS_WINDOWS,
+            0,
+            1
+        );
         const auto natural_starts = pitchee::naturalness_patch_starts(signal.size());
         std::vector<std::vector<float>> natural_patches;
         natural_patches.reserve(natural_starts.size());
@@ -440,7 +508,14 @@ pitchee_status_t pitchee_analyzer_analyze_pcm(
         const auto natural_embeddings = embed_waveforms(
             *analyzer->ecapa_frontend,
             *analyzer->ecapa,
-            natural_patches
+            natural_patches,
+            reporter,
+            PITCHEE_PROGRESS_STAGE_EXTRACTING_NATURALNESS_EMBEDDINGS
+        );
+        reporter.progress(
+            PITCHEE_PROGRESS_STAGE_PREPARING_NATURALNESS_WINDOWS,
+            1,
+            1
         );
         const auto features = naturalness_features(natural_embeddings);
 
@@ -492,6 +567,11 @@ pitchee_status_t pitchee_analyzer_analyze_pcm(
             features.end()
         );
         result.naturalness_windows.reserve(natural_starts.size());
+        reporter.progress(
+            PITCHEE_PROGRESS_STAGE_SCORING_NATURALNESS_WINDOWS,
+            0,
+            natural_starts.size()
+        );
         for (size_t index = 0; index < natural_starts.size(); ++index) {
             const double start_seconds = static_cast<double>(natural_starts[index])
                 / pitchee::kSampleRate;
@@ -519,8 +599,14 @@ pitchee_status_t pitchee_analyzer_analyze_pcm(
             );
             window.score = analyzer->naturalness->score(window_features);
             result.naturalness_windows.push_back(window);
+            reporter.progress(
+                PITCHEE_PROGRESS_STAGE_SCORING_NATURALNESS_WINDOWS,
+                index + 1,
+                natural_starts.size()
+            );
         }
 
+        reporter.progress(PITCHEE_PROGRESS_STAGE_CALCULATING_SCORES, 0, 1);
         result.source_sample_rate = sample_rate;
         result.source_channels = channels;
         result.source_seconds = source_seconds;
@@ -539,13 +625,112 @@ pitchee_status_t pitchee_analyzer_analyze_pcm(
             result.f0_mean_hz
         );
         result.vad = vad;
+        reporter.progress(PITCHEE_PROGRESS_STAGE_CALCULATING_SCORES, 1, 1);
 
+        reporter.progress(PITCHEE_PROGRESS_STAGE_SERIALIZING_RESULT, 0, 1);
         const std::string json = pitchee::result_to_json(result);
         auto* output = new char[json.size() + 1];
         std::memcpy(output, json.c_str(), json.size() + 1);
         *out_json = output;
-        report_phase(phase_callback, user_data, PITCHEE_PHASE_COMPLETED);
+        reporter.progress(PITCHEE_PROGRESS_STAGE_SERIALIZING_RESULT, 1, 1);
+        reporter.phase(PITCHEE_PHASE_COMPLETED);
+        reporter.progress(PITCHEE_PROGRESS_STAGE_COMPLETED, 1, 1);
         return PITCHEE_SUCCESS;
+    } catch (const std::exception& error) {
+        set_error(error_message, error_message_capacity, error.what());
+        return status_for_exception(error);
+    }
+}
+
+pitchee_status_t pitchee_analyzer_analyze_pcm(
+    pitchee_analyzer_t* analyzer,
+    const float* samples,
+    size_t sample_count,
+    int32_t sample_rate,
+    int32_t channels,
+    pitchee_phase_callback_t phase_callback,
+    void* user_data,
+    char** out_json,
+    char* error_message,
+    size_t error_message_capacity
+) {
+    const ProgressReporter reporter{
+        phase_callback,
+        user_data,
+        nullptr,
+        nullptr,
+    };
+    return analyze_pcm_impl(
+        analyzer,
+        samples,
+        sample_count,
+        sample_rate,
+        channels,
+        reporter,
+        out_json,
+        error_message,
+        error_message_capacity
+    );
+}
+
+pitchee_status_t pitchee_analyzer_analyze_pcm_with_progress(
+    pitchee_analyzer_t* analyzer,
+    const float* samples,
+    size_t sample_count,
+    int32_t sample_rate,
+    int32_t channels,
+    pitchee_progress_callback_t progress_callback,
+    void* user_data,
+    char** out_json,
+    char* error_message,
+    size_t error_message_capacity
+) {
+    const ProgressReporter reporter{
+        nullptr,
+        nullptr,
+        progress_callback,
+        user_data,
+    };
+    return analyze_pcm_impl(
+        analyzer,
+        samples,
+        sample_count,
+        sample_rate,
+        channels,
+        reporter,
+        out_json,
+        error_message,
+        error_message_capacity
+    );
+}
+
+pitchee_status_t analyze_wav_impl(
+    pitchee_analyzer_t* analyzer,
+    const char* wav_path,
+    const ProgressReporter& reporter,
+    char** out_json,
+    char* error_message,
+    size_t error_message_capacity
+) {
+    if (!analyzer || !wav_path || !out_json) {
+        set_error(error_message, error_message_capacity, "invalid WAV argument");
+        return PITCHEE_ERROR_INVALID_ARGUMENT;
+    }
+    *out_json = nullptr;
+    try {
+        reporter.progress(PITCHEE_PROGRESS_STAGE_LOADING_AUDIO, 0, 1);
+        const pitchee::WavData wav = pitchee::read_wav(wav_path);
+        return analyze_pcm_impl(
+            analyzer,
+            wav.samples.data(),
+            wav.samples.size(),
+            wav.sample_rate,
+            wav.channels,
+            reporter,
+            out_json,
+            error_message,
+            error_message_capacity
+        );
     } catch (const std::exception& error) {
         set_error(error_message, error_message_capacity, error.what());
         return status_for_exception(error);
@@ -561,30 +746,45 @@ pitchee_status_t pitchee_analyzer_analyze_wav_file(
     char* error_message,
     size_t error_message_capacity
 ) {
-    if (!analyzer || !wav_path || !out_json) {
-        set_error(error_message, error_message_capacity, "invalid WAV argument");
-        return PITCHEE_ERROR_INVALID_ARGUMENT;
-    }
-    *out_json = nullptr;
-    try {
-        report_phase(phase_callback, user_data, PITCHEE_PHASE_LOADING_AUDIO);
-        const pitchee::WavData wav = pitchee::read_wav(wav_path);
-        return pitchee_analyzer_analyze_pcm(
-            analyzer,
-            wav.samples.data(),
-            wav.samples.size(),
-            wav.sample_rate,
-            wav.channels,
-            phase_callback,
-            user_data,
-            out_json,
-            error_message,
-            error_message_capacity
-        );
-    } catch (const std::exception& error) {
-        set_error(error_message, error_message_capacity, error.what());
-        return status_for_exception(error);
-    }
+    const ProgressReporter reporter{
+        phase_callback,
+        user_data,
+        nullptr,
+        nullptr,
+    };
+    return analyze_wav_impl(
+        analyzer,
+        wav_path,
+        reporter,
+        out_json,
+        error_message,
+        error_message_capacity
+    );
+}
+
+pitchee_status_t pitchee_analyzer_analyze_wav_file_with_progress(
+    pitchee_analyzer_t* analyzer,
+    const char* wav_path,
+    pitchee_progress_callback_t progress_callback,
+    void* user_data,
+    char** out_json,
+    char* error_message,
+    size_t error_message_capacity
+) {
+    const ProgressReporter reporter{
+        nullptr,
+        nullptr,
+        progress_callback,
+        user_data,
+    };
+    return analyze_wav_impl(
+        analyzer,
+        wav_path,
+        reporter,
+        out_json,
+        error_message,
+        error_message_capacity
+    );
 }
 
 pitchee_status_t pitchee_composite_score(

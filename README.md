@@ -198,6 +198,51 @@ int main(void) {
 }
 ```
 
+### 详细进度回调
+
+旧版 `pitchee_phase_callback_t` 继续保留。需要细粒度进度时，使用：
+
+```c
+void progress_callback(const pitchee_progress_t* progress, void* user_data) {
+    switch (progress->stage) {
+        case PITCHEE_PROGRESS_STAGE_LOADING_AUDIO:
+        case PITCHEE_PROGRESS_STAGE_RESAMPLING_AUDIO:
+        case PITCHEE_PROGRESS_STAGE_ANALYZING_F0:
+        case PITCHEE_PROGRESS_STAGE_DETECTING_SPEECH:
+        case PITCHEE_PROGRESS_STAGE_PREPARING_VFP_WINDOWS:
+        case PITCHEE_PROGRESS_STAGE_EXTRACTING_VFP_EMBEDDINGS:
+        case PITCHEE_PROGRESS_STAGE_CLASSIFYING_VFP_WINDOWS:
+        case PITCHEE_PROGRESS_STAGE_PREPARING_NATURALNESS_WINDOWS:
+        case PITCHEE_PROGRESS_STAGE_EXTRACTING_NATURALNESS_EMBEDDINGS:
+        case PITCHEE_PROGRESS_STAGE_SCORING_NATURALNESS_WINDOWS:
+        case PITCHEE_PROGRESS_STAGE_CALCULATING_SCORES:
+        case PITCHEE_PROGRESS_STAGE_SERIALIZING_RESULT:
+        case PITCHEE_PROGRESS_STAGE_COMPLETED:
+            break;
+        default:
+            return;
+    }
+
+    /* progress->completed / progress->total 是当前阶段内的计数。 */
+    /* progress->fraction 是当前阶段内的 0-1 比例。 */
+    (void)user_data;
+}
+
+status = pitchee_analyzer_analyze_wav_file_with_progress(
+    analyzer,
+    "/path/to/audio.wav",
+    progress_callback,
+    NULL,
+    &json,
+    error,
+    sizeof(error)
+);
+```
+
+详细进度阶段均使用 `pitchee_progress_stage_t` 枚举常量，不返回阶段字符串。
+`DETECTING_SPEECH`、VFP 批处理、自然度窗口评分会持续更新实际完成数；
+单项任务阶段使用 `0/1` 和 `1/1`。
+
 ## Output
 
 输入一段有效音频后，会返回一个 UTF-8 JSON。下面是示例，数组内容省略了一部分：

@@ -53,6 +53,51 @@ status = pitchee_analyzer_analyze_pcm(
 - The result is UTF-8 JSON.
 - Release it with `pitchee_string_free(json)`.
 
+## Detailed progress
+
+Use the `_with_progress` variants when the caller needs more detail than the
+legacy four-value phase callback:
+
+```c
+void on_progress(const pitchee_progress_t* progress, void* user_data) {
+    if (progress->stage == PITCHEE_PROGRESS_STAGE_DETECTING_SPEECH) {
+        update_progress(progress->fraction);
+    }
+}
+
+status = pitchee_analyzer_analyze_pcm_with_progress(
+    analyzer,
+    samples,
+    sample_count,
+    sample_rate,
+    channels,
+    on_progress,
+    user_data,
+    &json,
+    error,
+    sizeof(error)
+);
+```
+
+`pitchee_progress_t` contains:
+
+| Field | Meaning |
+| --- | --- |
+| `stage` | A `pitchee_progress_stage_t` enum constant. No stage strings are returned. |
+| `completed` | Completed units in the current stage. |
+| `total` | Total units in the current stage. |
+| `fraction` | Stage-local value in `[0, 1]`. |
+
+The stage constants are `LOADING_AUDIO`, `RESAMPLING_AUDIO`, `ANALYZING_F0`,
+`DETECTING_SPEECH`, `PREPARING_VFP_WINDOWS`, `EXTRACTING_VFP_EMBEDDINGS`,
+`CLASSIFYING_VFP_WINDOWS`, `PREPARING_NATURALNESS_WINDOWS`,
+`EXTRACTING_NATURALNESS_EMBEDDINGS`, `SCORING_NATURALNESS_WINDOWS`,
+`CALCULATING_SCORES`, `SERIALIZING_RESULT`, and `COMPLETED`. All constants use
+the `PITCHEE_PROGRESS_STAGE_` prefix.
+
+Callbacks run synchronously on the thread performing analysis. The same
+analyzer must not be used concurrently.
+
 ## WAV file input
 
 ```c

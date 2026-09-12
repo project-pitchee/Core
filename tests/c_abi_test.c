@@ -3,6 +3,11 @@
 #include <stdio.h>
 #include <string.h>
 
+static void progress_callback(const pitchee_progress_t* progress, void* user_data) {
+    (void)progress;
+    (void)user_data;
+}
+
 int main(void) {
     if (strcmp(pitchee_core_version(), "0.1.0") != 0) {
         fprintf(stderr, "unexpected version\n");
@@ -21,6 +26,19 @@ int main(void) {
     }
     if (strcmp(score.score_rule, "f0_unavailable") != 0) {
         fprintf(stderr, "unexpected score rule\n");
+        return 1;
+    }
+
+    if (pitchee_analyzer_analyze_wav_file_with_progress(
+            NULL,
+            "missing.wav",
+            progress_callback,
+            NULL,
+            NULL,
+            NULL,
+            0
+        ) != PITCHEE_ERROR_INVALID_ARGUMENT) {
+        fprintf(stderr, "unexpected progress API status\n");
         return 1;
     }
     return 0;

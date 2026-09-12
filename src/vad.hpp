@@ -5,6 +5,7 @@
 #include "ort_runtime.hpp"
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 
 namespace pitchee {
@@ -16,7 +17,10 @@ public:
         int intra_op_threads
     );
 
-    VadResult detect(const std::vector<float>& samples) const;
+    VadResult detect(
+        const std::vector<float>& samples,
+        const std::function<void(size_t, size_t)>& progress = {}
+    ) const;
 
 private:
     std::unique_ptr<OrtModel> model_;

@@ -1,21 +1,23 @@
 #include "pitchee/pitchee.h"
 
 #include <cstdio>
+#include <cinttypes>
 #include <exception>
 #include <iostream>
 #include <string>
 
 namespace {
 
-void phase_callback(pitchee_analysis_phase_t phase, void*) {
-    const char* label = "unknown";
-    switch (phase) {
-        case PITCHEE_PHASE_PREPARING_MODELS: label = "preparing models"; break;
-        case PITCHEE_PHASE_LOADING_AUDIO: label = "loading audio"; break;
-        case PITCHEE_PHASE_ANALYZING: label = "analyzing"; break;
-        case PITCHEE_PHASE_COMPLETED: label = "completed"; break;
-    }
-    std::fprintf(stderr, "[pitchee] %s\n", label);
+void progress_callback(const pitchee_progress_t* progress, void*) {
+    std::fprintf(
+        stderr,
+        "[pitchee-progress] stage=%d completed=%" PRIu64
+        " total=%" PRIu64 " fraction=%.6f\n",
+        static_cast<int>(progress->stage),
+        progress->completed,
+        progress->total,
+        progress->fraction
+    );
 }
 
 }  // namespace
@@ -44,10 +46,10 @@ int main(int argc, char** argv) {
     }
 
     char* json = nullptr;
-    status = pitchee_analyzer_analyze_wav_file(
+    status = pitchee_analyzer_analyze_wav_file_with_progress(
         analyzer,
         argv[2],
-        phase_callback,
+        progress_callback,
         nullptr,
         &json,
         error,

@@ -68,7 +68,10 @@ VadDetector::VadDetector(
     int intra_op_threads
 ) : model_(std::make_unique<OrtModel>(model_path, intra_op_threads, false)) {}
 
-VadResult VadDetector::detect(const std::vector<float>& samples) const {
+VadResult VadDetector::detect(
+    const std::vector<float>& samples,
+    const std::function<void(size_t, size_t)>& progress
+) const {
     if (samples.empty()) throw std::invalid_argument("empty audio");
     std::vector<float> state(kStateSize, 0.0f);
     std::vector<float> context(kContextSize, 0.0f);
@@ -110,6 +113,12 @@ VadResult VadDetector::detect(const std::vector<float>& samples) const {
             throw std::runtime_error("Silero VAD returned invalid state");
         }
         context = std::move(next_context);
+        if (progress) {
+            progress(
+                std::min(samples.size(), start + kWindowSize),
+                samples.size()
+            );
+        }
     }
 
     const int minimum_speech_samples = kSampleRate * 80 / 1000;

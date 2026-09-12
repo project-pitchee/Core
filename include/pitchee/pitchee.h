@@ -47,6 +47,36 @@ typedef void (*pitchee_phase_callback_t)(
     void* user_data
 );
 
+typedef enum pitchee_progress_stage_t {
+    PITCHEE_PROGRESS_STAGE_LOADING_AUDIO = 0,
+    PITCHEE_PROGRESS_STAGE_RESAMPLING_AUDIO = 1,
+    PITCHEE_PROGRESS_STAGE_ANALYZING_F0 = 2,
+    PITCHEE_PROGRESS_STAGE_DETECTING_SPEECH = 3,
+    PITCHEE_PROGRESS_STAGE_PREPARING_VFP_WINDOWS = 4,
+    PITCHEE_PROGRESS_STAGE_EXTRACTING_VFP_EMBEDDINGS = 5,
+    PITCHEE_PROGRESS_STAGE_CLASSIFYING_VFP_WINDOWS = 6,
+    PITCHEE_PROGRESS_STAGE_PREPARING_NATURALNESS_WINDOWS = 7,
+    PITCHEE_PROGRESS_STAGE_EXTRACTING_NATURALNESS_EMBEDDINGS = 8,
+    PITCHEE_PROGRESS_STAGE_SCORING_NATURALNESS_WINDOWS = 9,
+    PITCHEE_PROGRESS_STAGE_CALCULATING_SCORES = 10,
+    PITCHEE_PROGRESS_STAGE_SERIALIZING_RESULT = 11,
+    PITCHEE_PROGRESS_STAGE_COMPLETED = 12,
+    PITCHEE_PROGRESS_STAGE_COUNT = 13
+} pitchee_progress_stage_t;
+
+typedef struct pitchee_progress_t {
+    pitchee_progress_stage_t stage;
+    int32_t reserved;
+    uint64_t completed;
+    uint64_t total;
+    double fraction;
+} pitchee_progress_t;
+
+typedef void (*pitchee_progress_callback_t)(
+    const pitchee_progress_t* progress,
+    void* user_data
+);
+
 typedef struct pitchee_analyzer_options_t {
     int32_t intra_op_threads;
     int32_t use_coreml;
@@ -94,10 +124,33 @@ PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_pcm(
     size_t error_message_capacity
 );
 
+PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_pcm_with_progress(
+    pitchee_analyzer_t* analyzer,
+    const float* samples,
+    size_t sample_count,
+    int32_t sample_rate,
+    int32_t channels,
+    pitchee_progress_callback_t progress_callback,
+    void* user_data,
+    char** out_json,
+    char* error_message,
+    size_t error_message_capacity
+);
+
 PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_wav_file(
     pitchee_analyzer_t* analyzer,
     const char* wav_path,
     pitchee_phase_callback_t phase_callback,
+    void* user_data,
+    char** out_json,
+    char* error_message,
+    size_t error_message_capacity
+);
+
+PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_wav_file_with_progress(
+    pitchee_analyzer_t* analyzer,
+    const char* wav_path,
+    pitchee_progress_callback_t progress_callback,
     void* user_data,
     char** out_json,
     char* error_message,
