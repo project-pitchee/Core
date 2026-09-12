@@ -2,23 +2,72 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 #include <stdexcept>
 
 namespace pitchee {
 namespace {
 
-constexpr int kResampleTaps = 32;
 constexpr double kPi = 3.14159265358979323846;
+constexpr double kKaiserBeta = 5.0;
 
 double sinc(double value) {
     if (std::abs(value) < 1e-12) return 1.0;
     return std::sin(kPi * value) / (kPi * value);
 }
 
-double blackman_window(int index, int count) {
-    const double ratio = static_cast<double>(index) / static_cast<double>(count - 1);
-    return 0.42 - 0.5 * std::cos(2.0 * kPi * ratio)
-        + 0.08 * std::cos(4.0 * kPi * ratio);
+double bessel_i0(double value) {
+    double sum = 1.0;
+    double term = 1.0;
+    const double half = value / 2.0;
+    for (int order = 1; order < 64; ++order) {
+        term *= (half / order) * (half / order);
+        sum += term;
+        if (term < sum * 1e-16) break;
+    }
+    return sum;
+}
+
+std::vector<double> kaiser_window(int count, double beta) {
+    std::vector<double> window(static_cast<size_t>(count));
+    const double denominator = bessel_i0(beta);
+    for (int index = 0; index < count; ++index) {
+        const double ratio = (
+            2.0 * index / static_cast<double>(count - 1)
+        ) - 1.0;
+        window[static_cast<size_t>(index)] = bessel_i0(
+            beta * std::sqrt(std::max(0.0, 1.0 - ratio * ratio))
+        ) / denominator;
+    }
+    return window;
+}
+
+std::vector<double> prototype_filter(int up, int down) {
+    const int maximum_rate = std::max(up, down);
+    const int half_length = 10 * maximum_rate;
+    const int tap_count = 2 * half_length + 1;
+    const double cutoff = 1.0 / maximum_rate;
+    const double center = half_length;
+    std::vector<double> coefficients(static_cast<size_t>(tap_count));
+    const auto window = kaiser_window(tap_count, kKaiserBeta);
+    for (int index = 0; index < tap_count; ++index) {
+        coefficients[static_cast<size_t>(index)] = cutoff * sinc(
+            cutoff * (index - center)
+        ) * window[static_cast<size_t>(index)];
+    }
+
+    const double sum = std::accumulate(
+        coefficients.begin(),
+        coefficients.end(),
+        0.0
+    );
+    if (std::abs(sum) > 1e-15) {
+        for (double& coefficient : coefficients) coefficient /= sum;
+    }
+    for (double& coefficient : coefficients) {
+        coefficient *= static_cast<double>(up);
+    }
+    return coefficients;
 }
 
 }  // namespace
@@ -53,38 +102,30 @@ std::vector<float> resample_mono(
         return output;
     }
 
-    const double ratio = static_cast<double>(target_rate) / source_rate;
-    const size_t output_count = static_cast<size_t>(
-        std::floor((static_cast<double>(frame_count - 1) / ratio)) + 1.0
-    );
+    const int divisor = std::gcd(source_rate, target_rate);
+    const int up = target_rate / divisor;
+    const int down = source_rate / divisor;
+    const std::vector<double> filter = prototype_filter(up, down);
+    const int half_length = static_cast<int>((filter.size() - 1) / 2);
+    const size_t upsampled_count = frame_count * static_cast<size_t>(up);
+    const size_t output_count = (
+        upsampled_count + static_cast<size_t>(down) - 1
+    ) / static_cast<size_t>(down);
     std::vector<float> output(output_count);
-    const double cutoff = 0.5 * std::min(1.0, ratio);
 
     for (size_t output_index = 0; output_index < output_count; ++output_index) {
-        const double source_position = static_cast<double>(output_index) / ratio;
-        const long center = static_cast<long>(std::floor(source_position));
-        const int left = center - kResampleTaps / 2 + 1;
-        const int right = left + kResampleTaps - 1;
-        double weighted = 0.0;
-        double weight_sum = 0.0;
-
-        for (int source_index = left; source_index <= right; ++source_index) {
+        double value = 0.0;
+        for (size_t tap = 0; tap < filter.size(); ++tap) {
+            const int source_position = static_cast<int>(output_index)
+                * down + half_length - static_cast<int>(tap);
+            if (source_position < 0 || source_position % up != 0) continue;
+            const int source_index = source_position / up;
             if (source_index < 0 || source_index >= static_cast<int>(frame_count)) {
                 continue;
             }
-            const double distance = source_position - source_index;
-            const double filter = 2.0 * cutoff * sinc(2.0 * cutoff * distance);
-            const double window = blackman_window(
-                source_index - left,
-                kResampleTaps
-            );
-            const double weight = filter * window;
-            weighted += mono[static_cast<size_t>(source_index)] * weight;
-            weight_sum += weight;
+            value += mono[static_cast<size_t>(source_index)] * filter[tap];
         }
-        output[output_index] = static_cast<float>(
-            weight_sum > 1e-12 ? weighted / weight_sum : 0.0
-        );
+        output[output_index] = static_cast<float>(value);
     }
     return output;
 }

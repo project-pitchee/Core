@@ -48,7 +48,7 @@ status = pitchee_analyzer_analyze_pcm(
 - `samples` is Float32 PCM in `[-1, 1]`.
 - `sample_count` is the total number of float values across all channels.
 - `channels == 1` means mono; greater than one means interleaved.
-- The library resamples to 16 kHz and limits analysis to 20 seconds.
+- The library resamples to 16 kHz and analyzes the entire supplied audio.
 - The result is UTF-8 JSON.
 - Release it with `pitchee_string_free(json)`.
 
