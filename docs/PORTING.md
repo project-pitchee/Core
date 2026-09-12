@@ -7,8 +7,8 @@
 - ECAPA log-Mel frontend
 - ECAPA embeddings
 - VFP probabilities
-- Naturalness score
-- SwiftF0 pitch analysis
+- Naturalness aggregate and per-window scores
+- 0.1-second SwiftF0 pitch timeline
 - Composite score
 
 ## What each platform owns

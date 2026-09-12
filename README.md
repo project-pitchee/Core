@@ -204,7 +204,7 @@ int main(void) {
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "model_version": "2026-09",
   "audio": {
     "source_sample_rate": 16000,
@@ -227,20 +227,34 @@ int main(void) {
       }
     ]
   },
-  "pitch": {
+  "f0": {
+    "window_seconds": 0.1,
     "mean_hz": 169.1802,
     "standard_deviation_hz": 10.8073,
-    "voiced_frame_count": 88
+    "voiced_frame_count": 88,
+    "voiced_window_count": 17,
+    "windows": [
+      {"start_seconds": 0.0, "end_seconds": 0.1, "f0_hz": null},
+      {"start_seconds": 0.7, "end_seconds": 0.8, "f0_hz": 187.3043}
+    ]
   },
-  "models": {
-    "raw_female_score": 0.0347584,
-    "standard_score": 3.47584,
-    "naturalness_score": 41.2709,
-    "vfp_window_count": 1,
-    "vfp_window_duration_seconds": 1.505,
-    "vfp_window_starts_seconds": [0.0],
-    "vfp_window_raw_scores": [0.0347584],
-    "naturalness_patch_count": 3
+  "vfp": {
+    "vfp_standard_score": 3.47584,
+    "window_count": 1,
+    "window_duration_seconds": 1.505,
+    "windows": [
+      {"start_seconds": 0.0, "end_seconds": 1.505, "vfp_standard_score": 3.47584}
+    ]
+  },
+  "naturalness": {
+    "score": 41.2709,
+    "window_count": 3,
+    "window_duration_seconds": 1.515,
+    "windows": [
+      {"start_seconds": 0.0, "end_seconds": 1.515, "score": 31.2666},
+      {"start_seconds": 1.8665, "end_seconds": 3.3815, "score": 22.9298},
+      {"start_seconds": 3.733, "end_seconds": 5.248, "score": 80.8774}
+    ]
   },
   "composite": {
     "base_score": 12.1184,
@@ -257,7 +271,7 @@ int main(void) {
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
-| `schema_version` | 整数 | JSON 数据契约版本。结构不兼容变化时递增。当前为 `1`。 |
+| `schema_version` | 整数 | JSON 数据契约版本。结构不兼容变化时递增。当前为 `2`。 |
 | `model_version` | 字符串 | 模型组合版本。当前为 `2026-09`。模型更新后应同步更新。 |
 
 ### `audio`
@@ -300,28 +314,61 @@ end_seconds - start_seconds
 = speech_end_seconds - speech_start_seconds
 ```
 
-### `pitch`
+### `f0`
 
 | 字段 | 单位 | 含义 |
 | --- | --- | --- |
+| `window_seconds` | 秒 | F0 时间轴窗口长度，固定为 `0.1`。 |
 | `mean_hz` | Hz | 有效浊音帧的平均 F0。没有有效帧时为 `null`。 |
 | `standard_deviation_hz` | Hz | 浊音 F0 的总体标准差，分母为帧数 `N`。 |
 | `voiced_frame_count` | 数量 | 置信度大于 `0.9` 且 F0 在 `75–600 Hz` 的帧数。 |
+| `voiced_window_count` | 数量 | 至少包含一个有效浊音帧的 0.1 秒窗口数。 |
+| `windows` | 数组 | 原始分析音频时间轴上的 F0 时间序列。 |
 
-### `models`
+#### `f0.windows[]`
+
+| 字段 | 单位 | 含义 |
+| --- | --- | --- |
+| `start_seconds` | 秒 | 窗口在原始分析音频时间轴上的起点。 |
+| `end_seconds` | 秒 | 窗口在原始分析音频时间轴上的终点。 |
+| `f0_hz` | Hz 或 `null` | 窗口内有效浊音帧的平均 F0；没有有效帧时为 `null`。 |
+
+### `vfp`
 
 | 字段 | 类型/范围 | 含义 |
 | --- | --- | --- |
-| `raw_female_score` | `0–1` | VFP 所有窗口概率的算术平均值。 |
-| `standard_score` | `0–100` | `raw_female_score × 100`，不是 Z-score。 |
-| `naturalness_score` | `0–100` | 自然度分，越高越自然；50 是加减分分界。 |
-| `vfp_window_count` | 数量 | VFP 窗口数量，也是得分数组长度。 |
-| `vfp_window_duration_seconds` | 秒 | 每个 VFP 窗口的有效时长；完整窗口约为 1.515 秒。 |
-| `vfp_window_starts_seconds` | 秒数组 | 每个 VFP 窗口在拼接语音缓冲区中的起点。 |
-| `vfp_window_raw_scores` | `0–1` 数组 | 每个 VFP 窗口的单独概率，顺序与 starts 对应。 |
-| `naturalness_patch_count` | 数量 | 自然度模型使用的窗口数，最多 24。 |
+| `vfp_standard_score` | `0–100` | 所有 VFP 窗口概率平均值乘以 100，不再返回冗余的 0–1 原始分。 |
+| `window_count` | 数量 | VFP 窗口数量。 |
+| `window_duration_seconds` | 秒 | 每个 VFP 窗口的有效时长；完整窗口约为 1.515 秒。 |
+| `windows` | 数组 | 每个 VFP 窗口的时间和标准分。 |
 
-`vfp_window_raw_scores[0]` 对应 `vfp_window_starts_seconds[0]`，以此类推。
+#### `vfp.windows[]`
+
+| 字段 | 单位/范围 | 含义 |
+| --- | --- | --- |
+| `start_seconds` | 秒 | 窗口在拼接语音缓冲区时间轴上的起点。 |
+| `end_seconds` | 秒 | 窗口在拼接语音缓冲区时间轴上的终点。 |
+| `vfp_standard_score` | `0–100` | 当前窗口概率乘以 100。 |
+
+### `naturalness`
+
+| 字段 | 类型/范围 | 含义 |
+| --- | --- | --- |
+| `score` | `0–100` | 整段音频的聚合自然度分；50 是加减分分界。 |
+| `window_count` | 数量 | 自然度窗口数量，最多 24。 |
+| `window_duration_seconds` | 秒 | 自然度窗口长度；完整窗口约为 1.515 秒。 |
+| `windows` | 数组 | 每个自然度窗口的时间轴位置和分数。 |
+
+#### `naturalness.windows[]`
+
+| 字段 | 单位/范围 | 含义 |
+| --- | --- | --- |
+| `start_seconds` | 秒 | 窗口在原始分析音频时间轴上的起点。 |
+| `end_seconds` | 秒 | 窗口在原始分析音频时间轴上的终点。 |
+| `score` | `0–100` | 使用当前窗口嵌入特征和整段音频共享标准差计算的局部自然度分。 |
+
+聚合 `naturalness.score` 使用整段音频所有窗口均值和标准差组成模型输入；
+`naturalness.windows[].score` 用于时间轴展示，不改变综合分计算。
 
 ### `composite`
 
@@ -339,9 +386,9 @@ end_seconds - start_seconds
 令：
 
 ```text
-S  = standard_score / 100
-N  = naturalness_score
-F0 = pitch.mean_hz
+S  = vfp.vfp_standard_score / 100
+N  = naturalness.score
+F0 = f0.mean_hz
 
 Sr = S
 Nr = clamp((N - 40) / 50, 0, 1)
@@ -365,7 +412,7 @@ base_score = 100 × (
 | `low_f0_stylized_cap` | `F0 <= 165`，`N < 50` | 最高 20 |
 | `high_f0_male_cap` | `F0 > 165`，`N >= 50`，`S < 50` | 最高 59 |
 | `continuous` | 未命中以上规则 | 直接使用 `base_score` |
-| `f0_unavailable` | 没有有效 F0 | 直接使用 `standard_score` |
+| `f0_unavailable` | 没有有效 F0 | 直接使用 `vfp.vfp_standard_score` |
 
 及格提升的公式：
 

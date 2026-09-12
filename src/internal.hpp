@@ -44,14 +44,32 @@ struct CompositeScore {
     std::string score_rule;
 };
 
+struct VfpWindow {
+    double start_seconds = 0.0;
+    double end_seconds = 0.0;
+    double vfp_standard_score = 0.0;
+};
+
+struct NaturalnessWindow {
+    double start_seconds = 0.0;
+    double end_seconds = 0.0;
+    double score = 0.0;
+};
+
+struct F0Window {
+    double start_seconds = 0.0;
+    double end_seconds = 0.0;
+    bool has_f0 = false;
+    double f0_hz = 0.0;
+};
+
 struct AnalysisResult {
-    double raw_female_score = 0.0;
-    double standard_score = 0.0;
+    double vfp_standard_score = 0.0;
     int window_count = 0;
-    std::vector<double> window_raw_scores;
-    std::vector<double> window_starts_seconds;
+    std::vector<VfpWindow> vfp_windows;
     double window_duration_seconds = 0.0;
-    int naturalness_patch_count = 0;
+    std::vector<NaturalnessWindow> naturalness_windows;
+    double naturalness_window_duration_seconds = 0.0;
     int source_sample_rate = 0;
     int source_channels = 0;
     double source_seconds = 0.0;
@@ -60,6 +78,8 @@ struct AnalysisResult {
     double f0_mean_hz = 0.0;
     double f0_standard_deviation_hz = 0.0;
     int voiced_frame_count = 0;
+    int voiced_window_count = 0;
+    std::vector<F0Window> f0_windows;
     double naturalness_score = 0.0;
     CompositeScore score;
     VadResult vad;
@@ -70,10 +90,12 @@ struct PitchResult {
     std::vector<float> confidence;
     std::vector<float> timestamps;
     std::vector<uint8_t> voicing;
+    std::vector<F0Window> windows;
     bool has_mean_f0 = false;
     double mean_f0_hz = 0.0;
     double standard_deviation_f0_hz = 0.0;
     int voiced_frame_count = 0;
+    int voiced_window_count = 0;
 };
 
 class OrtModel;
@@ -92,7 +114,7 @@ private:
 };
 
 CompositeScore calculate_composite_score(
-    double standard_score,
+    double vfp_standard_score,
     double naturalness_score,
     bool has_f0,
     double f0_hz

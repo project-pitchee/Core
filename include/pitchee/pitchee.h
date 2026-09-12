@@ -105,7 +105,7 @@ PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_wav_file(
 );
 
 PITCHEE_API pitchee_status_t pitchee_composite_score(
-    double standard_score,
+    double vfp_standard_score,
     double naturalness_score,
     double f0_hz,
     int32_t has_f0,

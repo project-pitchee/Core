@@ -18,18 +18,6 @@ std::string optional_number(bool present, double value) {
     return present ? number(value) : "null";
 }
 
-void write_number_array(
-    std::ostringstream& output,
-    const std::vector<double>& values
-) {
-    output << "[";
-    for (size_t index = 0; index < values.size(); ++index) {
-        if (index) output << ",";
-        output << number(values[index]);
-    }
-    output << "]";
-}
-
 }  // namespace
 
 std::string escape_json(const std::string& value) {
@@ -61,7 +49,7 @@ std::string escape_json(const std::string& value) {
 std::string result_to_json(const AnalysisResult& result) {
     std::ostringstream output;
     output << "{";
-    output << "\"schema_version\":1,";
+    output << "\"schema_version\":2,";
     output << "\"model_version\":\"2026-09\",";
 
     output << "\"audio\":{";
@@ -90,28 +78,57 @@ std::string result_to_json(const AnalysisResult& result) {
     }
     output << "]},";
 
-    output << "\"pitch\":{";
+    output << "\"f0\":{";
+    output << "\"window_seconds\":0.1,";
     output << "\"mean_hz\":" << optional_number(result.has_f0, result.f0_mean_hz) << ",";
     output << "\"standard_deviation_hz\":"
            << optional_number(result.has_f0, result.f0_standard_deviation_hz) << ",";
-    output << "\"voiced_frame_count\":" << result.voiced_frame_count;
-    output << "},";
+    output << "\"voiced_frame_count\":" << result.voiced_frame_count << ",";
+    output << "\"voiced_window_count\":" << result.voiced_window_count << ",";
+    output << "\"windows\":[";
+    for (size_t index = 0; index < result.f0_windows.size(); ++index) {
+        const auto& window = result.f0_windows[index];
+        if (index) output << ",";
+        output << "{\"start_seconds\":" << number(window.start_seconds)
+               << ",\"end_seconds\":" << number(window.end_seconds)
+               << ",\"f0_hz\":"
+               << optional_number(window.has_f0, window.f0_hz)
+               << "}";
+    }
+    output << "]},";
 
-    output << "\"models\":{";
-    output << "\"raw_female_score\":" << number(result.raw_female_score) << ",";
-    output << "\"standard_score\":" << number(result.standard_score) << ",";
-    output << "\"naturalness_score\":" << number(result.naturalness_score) << ",";
-    output << "\"vfp_window_count\":" << result.window_count << ",";
-    output << "\"vfp_window_duration_seconds\":"
+    output << "\"vfp\":{";
+    output << "\"vfp_standard_score\":" << number(result.vfp_standard_score) << ",";
+    output << "\"window_count\":" << result.window_count << ",";
+    output << "\"window_duration_seconds\":"
            << number(result.window_duration_seconds) << ",";
-    output << "\"vfp_window_starts_seconds\":";
-    write_number_array(output, result.window_starts_seconds);
-    output << ",";
-    output << "\"vfp_window_raw_scores\":";
-    write_number_array(output, result.window_raw_scores);
-    output << ",";
-    output << "\"naturalness_patch_count\":" << result.naturalness_patch_count;
-    output << "},";
+    output << "\"windows\":[";
+    for (size_t index = 0; index < result.vfp_windows.size(); ++index) {
+        const auto& window = result.vfp_windows[index];
+        if (index) output << ",";
+        output << "{\"start_seconds\":" << number(window.start_seconds)
+               << ",\"end_seconds\":" << number(window.end_seconds)
+               << ",\"vfp_standard_score\":"
+               << number(window.vfp_standard_score)
+               << "}";
+    }
+    output << "]},";
+
+    output << "\"naturalness\":{";
+    output << "\"score\":" << number(result.naturalness_score) << ",";
+    output << "\"window_count\":" << result.naturalness_windows.size() << ",";
+    output << "\"window_duration_seconds\":"
+           << number(result.naturalness_window_duration_seconds) << ",";
+    output << "\"windows\":[";
+    for (size_t index = 0; index < result.naturalness_windows.size(); ++index) {
+        const auto& window = result.naturalness_windows[index];
+        if (index) output << ",";
+        output << "{\"start_seconds\":" << number(window.start_seconds)
+               << ",\"end_seconds\":" << number(window.end_seconds)
+               << ",\"score\":" << number(window.score)
+               << "}";
+    }
+    output << "]},";
 
     output << "\"composite\":{";
     output << "\"base_score\":" << number(result.score.base_score) << ",";

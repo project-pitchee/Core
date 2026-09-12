@@ -131,6 +131,11 @@ if(PITCHEE_BUILD_TESTS)
     target_include_directories(pitchee_resample_test PRIVATE src)
     add_test(NAME pitchee_resample_test COMMAND pitchee_resample_test)
 
+    add_executable(pitchee_json_test tests/json_test.cpp src/json.cpp)
+    target_compile_features(pitchee_json_test PRIVATE cxx_std_17)
+    target_include_directories(pitchee_json_test PRIVATE src)
+    add_test(NAME pitchee_json_test COMMAND pitchee_json_test)
+
     add_executable(pitchee_c_abi_test tests/c_abi_test.c)
     target_link_libraries(pitchee_c_abi_test PRIVATE pitchee_core)
     add_test(NAME pitchee_c_abi_test COMMAND pitchee_c_abi_test)

@@ -77,7 +77,7 @@ The result is deliberately data-only:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "model_version": "2026-09",
   "audio": {
     "source_sample_rate": 48000,
@@ -93,20 +93,25 @@ The result is deliberately data-only:
     "trimmed_segment_count": 4,
     "segments": []
   },
-  "pitch": {
+  "f0": {
+    "window_seconds": 0.1,
     "mean_hz": null,
     "standard_deviation_hz": null,
-    "voiced_frame_count": 0
+    "voiced_frame_count": 0,
+    "voiced_window_count": 0,
+    "windows": []
   },
-  "models": {
-    "raw_female_score": 0.0,
-    "standard_score": 0.0,
-    "naturalness_score": 0.0,
-    "vfp_window_count": 0,
-    "vfp_window_duration_seconds": 0.0,
-    "vfp_window_starts_seconds": [],
-    "vfp_window_raw_scores": [],
-    "naturalness_patch_count": 0
+  "vfp": {
+    "vfp_standard_score": 0.0,
+    "window_count": 0,
+    "window_duration_seconds": 0.0,
+    "windows": []
+  },
+  "naturalness": {
+    "score": 0.0,
+    "window_count": 0,
+    "window_duration_seconds": 0.0,
+    "windows": []
   },
   "composite": {
     "base_score": 0.0,
@@ -119,16 +124,18 @@ The result is deliberately data-only:
 }
 ```
 
-There is no timeline geometry, color band, label, player state, or other UI
-concept in the result. A UI can construct those from the VAD segments and VFP
-window arrays.
+`f0.windows` and `naturalness.windows` use the original analyzed-audio
+timeline. `vfp.windows` uses the concatenated speech timeline described by
+`vad.segments[].speech_start_seconds` and `speech_end_seconds`. There is no
+timeline geometry, color band, label, player state, or other UI concept in the
+result.
 
 ## Composite score helper
 
 ```c
 pitchee_composite_score_t score;
 pitchee_composite_score(
-    standard_score,
+    vfp_standard_score,
     naturalness_score,
     f0_hz,
     has_f0,

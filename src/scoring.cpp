@@ -6,12 +6,15 @@
 namespace pitchee {
 
 CompositeScore calculate_composite_score(
-    double standard_score,
+    double vfp_standard_score,
     double naturalness_score,
     bool has_f0,
     double f0_hz
 ) {
-    const double standard = std::max(0.0, std::min(100.0, standard_score));
+    const double standard = std::max(
+        0.0,
+        std::min(100.0, vfp_standard_score)
+    );
     const double naturalness = std::max(0.0, std::min(100.0, naturalness_score));
     CompositeScore output;
     if (!has_f0 || f0_hz <= 0.0) {

@@ -28,6 +28,8 @@ struct pitchee_analyzer_t {
 
 namespace {
 
+constexpr double kF0WindowSeconds = 0.1;
+
 void set_error(char* target, size_t capacity, const std::string& message) {
     if (!target || capacity == 0) return;
     const size_t count = std::min(capacity - 1, message.size());
@@ -85,6 +87,15 @@ pitchee::PitchResult analyze_pitch(
     result.timestamps.resize(result.pitch_hz.size());
     result.voicing.resize(result.pitch_hz.size(), 0);
     std::vector<float> voiced_pitch;
+    const size_t f0_window_samples = static_cast<size_t>(
+        kF0WindowSeconds * pitchee::kSampleRate
+    );
+    const size_t f0_window_count = std::max<size_t>(
+        1,
+        (samples.size() + f0_window_samples - 1) / f0_window_samples
+    );
+    std::vector<double> f0_window_sums(f0_window_count, 0.0);
+    std::vector<size_t> f0_window_counts(f0_window_count, 0);
     for (size_t index = 0; index < result.pitch_hz.size(); ++index) {
         result.timestamps[index] = static_cast<float>(
             (static_cast<double>(index * 256) + 127.5) / 16000.0
@@ -94,8 +105,38 @@ pitchee::PitchResult analyze_pitch(
             && result.pitch_hz[index] >= 75.0f
             && result.pitch_hz[index] <= 600.0f;
         result.voicing[index] = voiced ? 1 : 0;
-        if (voiced) voiced_pitch.push_back(result.pitch_hz[index]);
+        if (voiced) {
+            voiced_pitch.push_back(result.pitch_hz[index]);
+            const size_t window_index = std::min(
+                f0_window_count - 1,
+                static_cast<size_t>(
+                    result.timestamps[index] / kF0WindowSeconds
+                )
+            );
+            f0_window_sums[window_index] += result.pitch_hz[index];
+            ++f0_window_counts[window_index];
+        }
     }
+
+    const double total_seconds = static_cast<double>(samples.size())
+        / pitchee::kSampleRate;
+    result.windows.reserve(f0_window_count);
+    for (size_t index = 0; index < f0_window_count; ++index) {
+        pitchee::F0Window window;
+        window.start_seconds = index * kF0WindowSeconds;
+        window.end_seconds = std::min(
+            total_seconds,
+            (index + 1) * kF0WindowSeconds
+        );
+        if (f0_window_counts[index] > 0) {
+            window.has_f0 = true;
+            window.f0_hz = f0_window_sums[index]
+                / static_cast<double>(f0_window_counts[index]);
+            ++result.voiced_window_count;
+        }
+        result.windows.push_back(window);
+    }
+
     if (!voiced_pitch.empty()) {
         const double mean = std::accumulate(
             voiced_pitch.begin(),
@@ -404,27 +445,75 @@ pitchee_status_t pitchee_analyzer_analyze_pcm(
         const auto features = naturalness_features(natural_embeddings);
 
         pitchee::AnalysisResult result;
-        result.raw_female_score = std::accumulate(
+        const double mean_probability = std::accumulate(
             probabilities.begin(),
             probabilities.end(),
             0.0
         ) / probabilities.size();
-        result.standard_score = std::max(
+        result.vfp_standard_score = std::max(
             0.0,
-            std::min(100.0, result.raw_female_score * 100.0)
+            std::min(100.0, mean_probability * 100.0)
         );
         result.window_count = static_cast<int>(probabilities.size());
-        result.window_raw_scores = probabilities;
-        result.window_starts_seconds.reserve(starts.size());
-        for (const size_t start : starts) {
-            result.window_starts_seconds.push_back(
-                static_cast<double>(start) / pitchee::kSampleRate
-            );
-        }
         result.window_duration_seconds = static_cast<double>(
             std::min<size_t>(pitchee::kPatchSamples, speech.size())
         ) / pitchee::kSampleRate;
-        result.naturalness_patch_count = static_cast<int>(natural_starts.size());
+        const double speech_seconds = static_cast<double>(speech.size())
+            / pitchee::kSampleRate;
+        result.vfp_windows.reserve(starts.size());
+        for (size_t index = 0; index < starts.size(); ++index) {
+            const double start_seconds = static_cast<double>(starts[index])
+                / pitchee::kSampleRate;
+            pitchee::VfpWindow window;
+            window.start_seconds = start_seconds;
+            window.end_seconds = std::min(
+                speech_seconds,
+                start_seconds + result.window_duration_seconds
+            );
+            window.vfp_standard_score = std::max(
+                0.0,
+                std::min(100.0, probabilities[index] * 100.0)
+            );
+            result.vfp_windows.push_back(window);
+        }
+
+        result.naturalness_window_duration_seconds = static_cast<double>(
+            std::min<size_t>(pitchee::kPatchSamples, signal.size())
+        ) / pitchee::kSampleRate;
+        const std::vector<float> global_naturalness_std(
+            features.begin() + pitchee::kEmbeddingDimensions,
+            features.end()
+        );
+        result.naturalness_windows.reserve(natural_starts.size());
+        for (size_t index = 0; index < natural_starts.size(); ++index) {
+            const double start_seconds = static_cast<double>(natural_starts[index])
+                / pitchee::kSampleRate;
+            const double window_duration = static_cast<double>(
+                std::min(
+                    static_cast<size_t>(pitchee::kPatchSamples),
+                    signal.size() - natural_starts[index]
+                )
+            ) / pitchee::kSampleRate;
+            std::vector<float> window_features = natural_embeddings[index];
+            pitchee::normalize_l2(
+                window_features.data(),
+                window_features.size()
+            );
+            window_features.insert(
+                window_features.end(),
+                global_naturalness_std.begin(),
+                global_naturalness_std.end()
+            );
+            pitchee::NaturalnessWindow window;
+            window.start_seconds = start_seconds;
+            window.end_seconds = std::min(
+                source_seconds,
+                start_seconds + window_duration
+            );
+            window.score = analyzer->naturalness->score(window_features);
+            result.naturalness_windows.push_back(window);
+        }
+
         result.source_sample_rate = sample_rate;
         result.source_channels = channels;
         result.source_seconds = source_seconds;
@@ -433,9 +522,11 @@ pitchee_status_t pitchee_analyzer_analyze_pcm(
         result.f0_mean_hz = pitch.mean_f0_hz;
         result.f0_standard_deviation_hz = pitch.standard_deviation_f0_hz;
         result.voiced_frame_count = pitch.voiced_frame_count;
+        result.voiced_window_count = pitch.voiced_window_count;
+        result.f0_windows = pitch.windows;
         result.naturalness_score = analyzer->naturalness->score(features);
         result.score = pitchee::calculate_composite_score(
-            result.standard_score,
+            result.vfp_standard_score,
             result.naturalness_score,
             result.has_f0,
             result.f0_mean_hz
@@ -490,7 +581,7 @@ pitchee_status_t pitchee_analyzer_analyze_wav_file(
 }
 
 pitchee_status_t pitchee_composite_score(
-    double standard_score,
+    double vfp_standard_score,
     double naturalness_score,
     double f0_hz,
     int32_t has_f0,
@@ -498,7 +589,7 @@ pitchee_status_t pitchee_composite_score(
 ) {
     if (!out_score) return PITCHEE_ERROR_INVALID_ARGUMENT;
     const auto score = pitchee::calculate_composite_score(
-        standard_score,
+        vfp_standard_score,
         naturalness_score,
         has_f0 != 0,
         f0_hz
