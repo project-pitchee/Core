@@ -1,0 +1,10 @@
+.DS_Store
+build*/
+.cache/
+compile_commands.json
+*.dylib
+*.so
+*.dll
+*.lib
+*.a
+*.pdb

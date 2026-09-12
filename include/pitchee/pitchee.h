@@ -1,0 +1,121 @@
+#ifndef PITCHEE_PITCHEE_H
+#define PITCHEE_PITCHEE_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#if defined(PITCHEE_STATIC)
+#  define PITCHEE_API
+#elif defined(_WIN32)
+#  if defined(PITCHEE_CORE_BUILD)
+#    define PITCHEE_API __declspec(dllexport)
+#  else
+#    define PITCHEE_API __declspec(dllimport)
+#  endif
+#elif defined(__GNUC__) || defined(__clang__)
+#  define PITCHEE_API __attribute__((visibility("default")))
+#else
+#  define PITCHEE_API
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct pitchee_analyzer_t pitchee_analyzer_t;
+
+typedef enum pitchee_status_t {
+    PITCHEE_SUCCESS = 0,
+    PITCHEE_ERROR_INVALID_ARGUMENT = 1,
+    PITCHEE_ERROR_IO = 2,
+    PITCHEE_ERROR_ORT_UNAVAILABLE = 3,
+    PITCHEE_ERROR_MODEL = 4,
+    PITCHEE_ERROR_NO_SPEECH = 5,
+    PITCHEE_ERROR_UNSUPPORTED_FORMAT = 6,
+    PITCHEE_ERROR_INTERNAL = 7
+} pitchee_status_t;
+
+typedef enum pitchee_analysis_phase_t {
+    PITCHEE_PHASE_PREPARING_MODELS = 0,
+    PITCHEE_PHASE_LOADING_AUDIO = 1,
+    PITCHEE_PHASE_ANALYZING = 2,
+    PITCHEE_PHASE_COMPLETED = 3
+} pitchee_analysis_phase_t;
+
+typedef void (*pitchee_phase_callback_t)(
+    pitchee_analysis_phase_t phase,
+    void* user_data
+);
+
+typedef struct pitchee_analyzer_options_t {
+    int32_t intra_op_threads;
+    int32_t use_coreml;
+    int32_t reserved;
+} pitchee_analyzer_options_t;
+
+typedef struct pitchee_composite_score_t {
+    double base_score;
+    double final_score;
+    double score_cap;
+    int32_t has_score_cap;
+    int32_t score_limited;
+    int32_t score_boosted;
+    char score_rule[32];
+} pitchee_composite_score_t;
+
+PITCHEE_API const char* pitchee_core_version(void);
+
+PITCHEE_API pitchee_status_t pitchee_analyzer_create(
+    const char* model_directory,
+    const pitchee_analyzer_options_t* options,
+    pitchee_analyzer_t** out_analyzer,
+    char* error_message,
+    size_t error_message_capacity
+);
+
+PITCHEE_API void pitchee_analyzer_destroy(pitchee_analyzer_t* analyzer);
+
+/*
+ * Samples must be mono or interleaved float32 PCM in [-1, 1].
+ * The implementation resamples to 16 kHz, so any positive source rate is valid.
+ * The returned JSON string is allocated by PitcheeCore and must be released with
+ * pitchee_string_free().
+ */
+PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_pcm(
+    pitchee_analyzer_t* analyzer,
+    const float* samples,
+    size_t sample_count,
+    int32_t sample_rate,
+    int32_t channels,
+    pitchee_phase_callback_t phase_callback,
+    void* user_data,
+    char** out_json,
+    char* error_message,
+    size_t error_message_capacity
+);
+
+PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_wav_file(
+    pitchee_analyzer_t* analyzer,
+    const char* wav_path,
+    pitchee_phase_callback_t phase_callback,
+    void* user_data,
+    char** out_json,
+    char* error_message,
+    size_t error_message_capacity
+);
+
+PITCHEE_API pitchee_status_t pitchee_composite_score(
+    double standard_score,
+    double naturalness_score,
+    double f0_hz,
+    int32_t has_f0,
+    pitchee_composite_score_t* out_score
+);
+
+PITCHEE_API void pitchee_string_free(char* value);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
