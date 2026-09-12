@@ -18,7 +18,8 @@ void require(bool condition, const char* message) {
 
 int main() {
     const std::vector<float> source{
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+        0.0f, 0.1f, 0.2f, 0.3f, 0.4f, 0.5f,
+        0.6f, 0.7f, 0.8f, 0.9f, 1.0f, 1.1f
     };
     const auto resampled = pitchee::resample_mono(
         source.data(),
@@ -28,10 +29,10 @@ int main() {
         16000
     );
     const std::vector<double> expected{
-        0.08643475,
-        3.2635032,
-        5.52451563,
-        9.97281256
+        0.01287841796875,
+        0.321319580078125,
+        0.55743408203125,
+        0.991058349609375
     };
     require(resampled.size() == expected.size(), "output length");
     for (size_t index = 0; index < expected.size(); ++index) {

@@ -148,6 +148,10 @@ unzip /tmp/onnxruntime-ios.zip -d third_party/onnxruntime-ios
 CLI 支持 PCM16、PCM32 和 Float32 WAV。M4A、MP3、AAC 等压缩格式应通过
 AVFoundation、MediaCodec 或桌面解码器转换成 Float32 PCM。
 
+Core 的 16 kHz 重采样与 FFmpeg `swresample` 的默认参数对齐，并在推理前量化
+为 PCM16。这样桌面站点、服务器和移动端会让模型接收到同一种数值表示，避免
+自然度模型对微小浮点差异过度敏感。
+
 ## 最小 C 调用
 
 ```c

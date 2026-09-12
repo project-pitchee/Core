@@ -9,12 +9,10 @@ namespace pitchee {
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
-constexpr double kKaiserBeta = 5.0;
-
-double sinc(double value) {
-    if (std::abs(value) < 1e-12) return 1.0;
-    return std::sin(kPi * value) / (kPi * value);
-}
+constexpr double kSwrCutoff = 0.97;
+constexpr int kSwrBaseFilterSize = 32;
+constexpr int kSwrMaximumPhases = 1024;
+constexpr double kSwrKaiserBeta = 9.0;
 
 double bessel_i0(double value) {
     double sum = 1.0;
@@ -28,46 +26,43 @@ double bessel_i0(double value) {
     return sum;
 }
 
-std::vector<double> kaiser_window(int count, double beta) {
-    std::vector<double> window(static_cast<size_t>(count));
-    const double denominator = bessel_i0(beta);
-    for (int index = 0; index < count; ++index) {
-        const double ratio = (
-            2.0 * index / static_cast<double>(count - 1)
-        ) - 1.0;
-        window[static_cast<size_t>(index)] = bessel_i0(
-            beta * std::sqrt(std::max(0.0, 1.0 - ratio * ratio))
-        ) / denominator;
-    }
-    return window;
-}
-
-std::vector<double> prototype_filter(int up, int down) {
-    const int maximum_rate = std::max(up, down);
-    const int half_length = 10 * maximum_rate;
-    const int tap_count = 2 * half_length + 1;
-    const double cutoff = 1.0 / maximum_rate;
-    const double center = half_length;
+std::vector<double> swr_phase_filter(
+    int tap_count,
+    int center,
+    int phase,
+    int phase_count,
+    double factor,
+    double normalization
+) {
     std::vector<double> coefficients(static_cast<size_t>(tap_count));
-    const auto window = kaiser_window(tap_count, kKaiserBeta);
     for (int index = 0; index < tap_count; ++index) {
-        coefficients[static_cast<size_t>(index)] = cutoff * sinc(
-            cutoff * (index - center)
-        ) * window[static_cast<size_t>(index)];
-    }
-
-    const double sum = std::accumulate(
-        coefficients.begin(),
-        coefficients.end(),
-        0.0
-    );
-    if (std::abs(sum) > 1e-15) {
-        for (double& coefficient : coefficients) coefficient /= sum;
-    }
-    for (double& coefficient : coefficients) {
-        coefficient *= static_cast<double>(up);
+        const double distance = static_cast<double>(index - center)
+            - static_cast<double>(phase) / phase_count;
+        const double x = kPi * distance * factor;
+        double coefficient = std::abs(x) < 1e-12
+            ? 1.0
+            : std::sin(x) / x;
+        const double window_position = 2.0 * distance / tap_count;
+        const double window_argument = std::max(
+            0.0,
+            1.0 - window_position * window_position
+        );
+        coefficient *= bessel_i0(
+            kSwrKaiserBeta * std::sqrt(window_argument)
+        );
+        coefficients[static_cast<size_t>(index)] = coefficient / normalization;
     }
     return coefficients;
+}
+
+float quantize_pcm16(double value) {
+    // The site and training pipeline use PCM16 WAV; naturalness features are
+    // sensitive enough that even sub-LSB float differences matter.
+    const double scaled = std::max(
+        -32768.0,
+        std::min(32767.0, std::round(value * 32768.0))
+    );
+    return static_cast<float>(scaled / 32768.0);
 }
 
 }  // namespace
@@ -97,35 +92,81 @@ std::vector<float> resample_mono(
     if (source_rate == target_rate) {
         std::vector<float> output(frame_count);
         std::transform(mono.begin(), mono.end(), output.begin(), [](double value) {
-            return static_cast<float>(value);
+            return quantize_pcm16(value);
         });
         return output;
     }
 
+    const double factor = std::min(
+        1.0,
+        static_cast<double>(target_rate) * kSwrCutoff / source_rate
+    );
+    int tap_count = static_cast<int>(std::ceil(kSwrBaseFilterSize / factor));
+    if (tap_count > 1 && tap_count % 2 != 0) ++tap_count;
+    const int center = (tap_count - 1) / 2;
     const int divisor = std::gcd(source_rate, target_rate);
-    const int up = target_rate / divisor;
-    const int down = source_rate / divisor;
-    const std::vector<double> filter = prototype_filter(up, down);
-    const int half_length = static_cast<int>((filter.size() - 1) / 2);
-    const size_t upsampled_count = frame_count * static_cast<size_t>(up);
-    const size_t output_count = (
-        upsampled_count + static_cast<size_t>(down) - 1
-    ) / static_cast<size_t>(down);
-    std::vector<float> output(output_count);
+    const int exact_phase_count = target_rate / divisor;
+    const int phase_count = std::min(exact_phase_count, kSwrMaximumPhases);
 
+    std::vector<std::vector<double>> phase_filters(
+        static_cast<size_t>(phase_count + 1)
+    );
+    const auto first_filter = swr_phase_filter(
+        tap_count,
+        center,
+        0,
+        phase_count,
+        factor,
+        1.0
+    );
+    const double normalization = std::accumulate(
+        first_filter.begin(),
+        first_filter.end(),
+        0.0
+    );
+    for (int phase = 0; phase <= phase_count; ++phase) {
+        const int wrapped_phase = phase == phase_count ? 0 : phase;
+        phase_filters[static_cast<size_t>(phase)] = swr_phase_filter(
+            tap_count,
+            center,
+            wrapped_phase,
+            phase_count,
+            factor,
+            normalization
+        );
+    }
+
+    const size_t output_count = static_cast<size_t>(std::ceil(
+        static_cast<long double>(frame_count) * target_rate / source_rate
+    ));
+    std::vector<float> output(output_count);
     for (size_t output_index = 0; output_index < output_count; ++output_index) {
+        const double source_position = static_cast<double>(output_index)
+            * source_rate / target_rate;
+        const long base_index = static_cast<long>(std::floor(source_position));
+        const double phase_position = (
+            source_position - static_cast<double>(base_index)
+        ) * phase_count;
+        const int phase = std::min(
+            static_cast<int>(std::floor(phase_position)),
+            phase_count - 1
+        );
+        const double interpolation = phase_position - phase;
+        const auto& left = phase_filters[static_cast<size_t>(phase)];
+        const auto& right = phase_filters[static_cast<size_t>(phase + 1)];
         double value = 0.0;
-        for (size_t tap = 0; tap < filter.size(); ++tap) {
-            const int source_position = static_cast<int>(output_index)
-                * down + half_length - static_cast<int>(tap);
-            if (source_position < 0 || source_position % up != 0) continue;
-            const int source_index = source_position / up;
-            if (source_index < 0 || source_index >= static_cast<int>(frame_count)) {
+        for (int tap = 0; tap < tap_count; ++tap) {
+            const long source_index = base_index - center + tap;
+            if (source_index < 0
+                || source_index >= static_cast<long>(frame_count)) {
                 continue;
             }
-            value += mono[static_cast<size_t>(source_index)] * filter[tap];
+            const double coefficient = left[static_cast<size_t>(tap)] * (
+                1.0 - interpolation
+            ) + right[static_cast<size_t>(tap)] * interpolation;
+            value += mono[static_cast<size_t>(source_index)] * coefficient;
         }
-        output[output_index] = static_cast<float>(value);
+        output[output_index] = quantize_pcm16(value);
     }
     return output;
 }

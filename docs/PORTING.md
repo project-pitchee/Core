@@ -2,7 +2,7 @@
 
 ## What the shared core owns
 
-- PCM resampling to 16 kHz
+- FFmpeg-compatible PCM resampling to 16 kHz
 - Silero VAD and breath filtering
 - ECAPA log-Mel frontend
 - ECAPA embeddings
