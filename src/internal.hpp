@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -14,7 +15,8 @@ constexpr int kPatchSamples = 24240;
 constexpr int kStrideSamples = 1600;
 constexpr int kEmbeddingBatchSize = 8;
 constexpr int kEmbeddingDimensions = 192;
-constexpr double kMaximumSeconds = 20.0;
+// An infinite limit disables input truncation in the analyzer.
+constexpr double kMaximumSeconds = std::numeric_limits<double>::infinity();
 
 struct VadSegment {
     double source_start_seconds = 0.0;
