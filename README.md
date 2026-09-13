@@ -341,7 +341,7 @@ status = pitchee_analyzer_analyze_wav_file_with_progress(
 | `silero_segment_count` | 数量 | Silero VAD 在过滤前的原始段数。 |
 | `discarded_breath_like_count` | 数量 | 因周期性不足而删除的段数。 |
 | `trimmed_segment_count` | 数量 | 首尾被裁剪过的语音段数量。 |
-| `segments` | 数组 | 最终语音区间，顺序与拼接后的 VFP 输入一致。 |
+| `segments` | 数组 | VAD 保留的最终语音区间，VFP 和自然度都直接使用这些原始时间轴区间。 |
 
 #### `vad.segments[]`
 
@@ -384,7 +384,7 @@ end_seconds - start_seconds
 | --- | --- | --- |
 | `vfp_standard_score` | `0–100` | 所有 VFP 窗口概率平均值乘以 100，不再返回冗余的 0–1 原始分。 |
 | `window_count` | 数量 | VFP 窗口数量。 |
-| `window_duration_seconds` | 秒 | 每个 VFP 窗口的有效时长；完整窗口约为 1.515 秒。 |
+| `window_duration_seconds` | 秒 | 标称完整窗口长度，即 1.515 秒；短语音窗口的实际长度看各窗口的 start/end。 |
 | `windows` | 数组 | 每个 VFP 窗口的时间和标准分。 |
 
 #### `vfp.windows[]`
@@ -395,9 +395,9 @@ end_seconds - start_seconds
 | `end_seconds` | 秒 | 窗口映射到原始分析音频时间轴后的终点。 |
 | `vfp_standard_score` | `0–100` | 当前窗口概率乘以 100。 |
 
-VFP 推理仍使用拼接后的连续语音缓冲区。返回窗口时间时，起点会映射到该位置
-所在语音段的起点，终点映射到该位置所在语音段的终点。如果窗口跨越多个语音段，
-则 `end_seconds - start_seconds` 会包含期间被 VAD 去掉的静音。
+Core 不对语音段做拼接。长语音段按 1.515 秒窗口和 0.1 秒步长滑动；短于
+1.515 秒的语音段直接按原长度送入模型，不补零。最后一个完整窗口对齐语音段
+尾部，窗口不会跨越静音或相邻语音段。
 
 ### `naturalness`
 
@@ -405,7 +405,7 @@ VFP 推理仍使用拼接后的连续语音缓冲区。返回窗口时间时，�
 | --- | --- | --- |
 | `score` | `0–100` | 整段音频的聚合自然度分；50 是加减分分界。 |
 | `window_count` | 数量 | 自然度窗口数量，最多 24。 |
-| `window_duration_seconds` | 秒 | 自然度窗口长度；完整窗口约为 1.515 秒。 |
+| `window_duration_seconds` | 秒 | 标称完整窗口长度，即 1.515 秒；短语音窗口的实际长度看各窗口的 start/end。 |
 | `windows` | 数组 | 每个自然度窗口的时间轴位置和分数。 |
 
 #### `naturalness.windows[]`
@@ -416,8 +416,11 @@ VFP 推理仍使用拼接后的连续语音缓冲区。返回窗口时间时，�
 | `end_seconds` | 秒 | 窗口在原始分析音频时间轴上的终点。 |
 | `score` | `0–100` | 使用当前窗口嵌入特征和整段音频共享标准差计算的局部自然度分。 |
 
-聚合 `naturalness.score` 使用整段音频所有窗口均值和标准差组成模型输入；
+聚合 `naturalness.score` 使用所选自然度语音窗口的均值和标准差组成模型输入；
 `naturalness.windows[].score` 用于时间轴展示，不改变综合分计算。
+
+自然度也只从 VAD 保留的语音窗口中选择，最多均匀选取 24 个窗口。长语音段使用
+1.515 秒完整窗口；短语音段使用原长窗口，不补零。
 
 ### `composite`
 
@@ -499,6 +502,8 @@ models/
 
 `VFPHead.onnx`、`Naturalness.onnx` 和官方 `SwiftF0.onnx` 均使用未压缩的
 FP32 权重。`ECAPA.onnx` 当前仍为 FP16 权重，用于控制移动端包体和内存占用。
+`ECAPAFrontend.onnx` 和 `ECAPA.onnx` 的时间维是动态的，因此 VAD 短语音段
+可以按原长度直接推理，不需要补齐到 1.515 秒。
 
 ## 线程与生命周期
 

@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <numeric>
 #include <stdexcept>
@@ -185,67 +186,68 @@ std::vector<std::vector<float>> embed_waveforms(
     const ProgressReporter& reporter,
     pitchee_progress_stage_t stage
 ) {
-    std::vector<std::vector<float>> embeddings;
-    embeddings.reserve(waveforms.size());
+    std::vector<std::vector<float>> embeddings(waveforms.size());
+    std::map<size_t, std::vector<size_t>> groups;
+    for (size_t index = 0; index < waveforms.size(); ++index) {
+        if (waveforms[index].empty()) continue;
+        groups[waveforms[index].size()].push_back(index);
+    }
+    if (groups.empty()) throw std::runtime_error("no waveform windows");
+
     reporter.progress(stage, 0, waveforms.size());
-    for (size_t batch_start = 0;
-         batch_start < waveforms.size();
-         batch_start += pitchee::kEmbeddingBatchSize) {
-        const size_t real_count = std::min<size_t>(
-            pitchee::kEmbeddingBatchSize,
-            waveforms.size() - batch_start
-        );
-        pitchee::Tensor input;
-        input.shape = {
-            pitchee::kEmbeddingBatchSize,
-            pitchee::kPatchSamples,
-        };
-        input.values.reserve(
-            static_cast<size_t>(pitchee::kEmbeddingBatchSize)
-            * pitchee::kPatchSamples
-        );
-        for (size_t index = 0; index < pitchee::kEmbeddingBatchSize; ++index) {
-            if (index < real_count) {
-                input.values.insert(
-                    input.values.end(),
-                    waveforms[batch_start + index].begin(),
-                    waveforms[batch_start + index].end()
-                );
-            } else {
-                input.values.insert(
-                    input.values.end(),
-                    pitchee::kPatchSamples,
-                    0.0f
+    size_t completed = 0;
+    for (const auto& [window_samples, indices] : groups) {
+        for (size_t batch_start = 0;
+             batch_start < indices.size();
+             batch_start += pitchee::kEmbeddingBatchSize) {
+            const size_t real_count = std::min<size_t>(
+                pitchee::kEmbeddingBatchSize,
+                indices.size() - batch_start
+            );
+            pitchee::Tensor input;
+            input.shape = {
+                pitchee::kEmbeddingBatchSize,
+                static_cast<int64_t>(window_samples),
+            };
+            input.values.reserve(
+                static_cast<size_t>(pitchee::kEmbeddingBatchSize)
+                * window_samples
+            );
+            for (size_t index = 0; index < pitchee::kEmbeddingBatchSize; ++index) {
+                if (index < real_count) {
+                    const auto& waveform = waveforms[indices[batch_start + index]];
+                    input.values.insert(
+                        input.values.end(),
+                        waveform.begin(),
+                        waveform.end()
+                    );
+                } else {
+                    input.values.insert(input.values.end(), window_samples, 0.0f);
+                }
+            }
+
+            auto features = frontend.run({{"waveforms", std::move(input)}});
+            auto batch_embeddings = encoder.run(
+                {{"features", std::move(features)}}
+            );
+            if (batch_embeddings.values.size()
+                < static_cast<size_t>(pitchee::kEmbeddingBatchSize)
+                    * pitchee::kEmbeddingDimensions) {
+                throw std::runtime_error("ECAPA returned invalid embeddings");
+            }
+            for (size_t index = 0; index < real_count; ++index) {
+                const auto start = batch_embeddings.values.begin()
+                    + static_cast<std::ptrdiff_t>(
+                        index * pitchee::kEmbeddingDimensions
+                    );
+                embeddings[indices[batch_start + index]].assign(
+                    start,
+                    start + pitchee::kEmbeddingDimensions
                 );
             }
+            completed += real_count;
+            reporter.progress(stage, completed, waveforms.size());
         }
-
-        auto features = frontend.run({{"waveforms", std::move(input)}});
-        features.shape = {pitchee::kEmbeddingBatchSize, 152, 80};
-        auto batch_embeddings = encoder.run({{"features", std::move(features)}});
-        if (batch_embeddings.values.size()
-            < static_cast<size_t>(pitchee::kEmbeddingBatchSize)
-                * pitchee::kEmbeddingDimensions) {
-            throw std::runtime_error("ECAPA returned invalid embeddings");
-        }
-        for (size_t index = 0; index < real_count; ++index) {
-            const auto start = batch_embeddings.values.begin()
-                + static_cast<std::ptrdiff_t>(
-                    index * pitchee::kEmbeddingDimensions
-                );
-            embeddings.emplace_back(
-                start,
-                start + pitchee::kEmbeddingDimensions
-            );
-        }
-        reporter.progress(
-            stage,
-            std::min(
-                waveforms.size(),
-                batch_start + pitchee::kEmbeddingBatchSize
-            ),
-            waveforms.size()
-        );
     }
     return embeddings;
 }
@@ -470,20 +472,24 @@ pitchee_status_t analyze_pcm_impl(
             throw std::runtime_error("Silero VAD detected no speech");
         }
         reporter.progress(PITCHEE_PROGRESS_STAGE_PREPARING_VFP_WINDOWS, 0, 1);
-        const auto speech = pitchee::concatenate_speech(signal, vad.segments);
-        if (speech.empty()) throw std::runtime_error("Silero VAD detected no speech");
+        const auto source_windows = pitchee::native_speech_windows(
+            signal.size(),
+            vad.segments
+        );
+        if (source_windows.empty()) {
+            throw std::runtime_error("Silero VAD detected no speech");
+        }
         reporter.progress(PITCHEE_PROGRESS_STAGE_PREPARING_VFP_WINDOWS, 1, 1);
 
-        const auto starts = pitchee::sliding_patch_starts(speech.size());
-        std::vector<std::vector<float>> speech_patches;
-        speech_patches.reserve(starts.size());
-        for (const size_t start : starts) {
-            speech_patches.push_back(pitchee::crop_patch(speech, start));
+        std::vector<std::vector<float>> vfp_patches;
+        vfp_patches.reserve(source_windows.size());
+        for (const auto& window : source_windows) {
+            vfp_patches.push_back(pitchee::crop_window(signal, window));
         }
         const auto speech_embeddings = embed_waveforms(
             *analyzer->ecapa_frontend,
             *analyzer->ecapa,
-            speech_patches,
+            vfp_patches,
             reporter,
             PITCHEE_PROGRESS_STAGE_EXTRACTING_VFP_EMBEDDINGS
         );
@@ -499,11 +505,14 @@ pitchee_status_t analyze_pcm_impl(
             0,
             1
         );
-        const auto natural_starts = pitchee::naturalness_patch_starts(signal.size());
+        const auto natural_windows = pitchee::select_naturalness_windows(
+            source_windows,
+            24
+        );
         std::vector<std::vector<float>> natural_patches;
-        natural_patches.reserve(natural_starts.size());
-        for (const size_t start : natural_starts) {
-            natural_patches.push_back(pitchee::crop_patch(signal, start));
+        natural_patches.reserve(natural_windows.size());
+        for (const auto& window : natural_windows) {
+            natural_patches.push_back(pitchee::crop_window(signal, window));
         }
         const auto natural_embeddings = embed_waveforms(
             *analyzer->ecapa_frontend,
@@ -531,24 +540,16 @@ pitchee_status_t analyze_pcm_impl(
         );
         result.window_count = static_cast<int>(probabilities.size());
         result.window_duration_seconds = static_cast<double>(
-            std::min<size_t>(pitchee::kPatchSamples, speech.size())
+            pitchee::kPatchSamples
         ) / pitchee::kSampleRate;
-        const double speech_seconds = static_cast<double>(speech.size())
-            / pitchee::kSampleRate;
-        result.vfp_windows.reserve(starts.size());
-        for (size_t index = 0; index < starts.size(); ++index) {
-            const double speech_start_seconds = static_cast<double>(starts[index])
-                / pitchee::kSampleRate;
-            const double speech_end_seconds = std::min(
-                speech_seconds,
-                speech_start_seconds + result.window_duration_seconds
-            );
-            const auto [start_seconds, end_seconds] =
-                pitchee::map_speech_range_to_source(
-                    vad.segments,
-                    speech_start_seconds,
-                    speech_end_seconds
-                );
+        result.vfp_windows.reserve(source_windows.size());
+        for (size_t index = 0; index < source_windows.size(); ++index) {
+            const double start_seconds = static_cast<double>(
+                source_windows[index].start
+            ) / pitchee::kSampleRate;
+            const double end_seconds = static_cast<double>(
+                source_windows[index].start + source_windows[index].length
+            ) / pitchee::kSampleRate;
             pitchee::VfpWindow window;
             window.start_seconds = start_seconds;
             window.end_seconds = end_seconds;
@@ -560,26 +561,24 @@ pitchee_status_t analyze_pcm_impl(
         }
 
         result.naturalness_window_duration_seconds = static_cast<double>(
-            std::min<size_t>(pitchee::kPatchSamples, signal.size())
+            pitchee::kPatchSamples
         ) / pitchee::kSampleRate;
         const std::vector<float> global_naturalness_std(
             features.begin() + pitchee::kEmbeddingDimensions,
             features.end()
         );
-        result.naturalness_windows.reserve(natural_starts.size());
+        result.naturalness_windows.reserve(natural_windows.size());
         reporter.progress(
             PITCHEE_PROGRESS_STAGE_SCORING_NATURALNESS_WINDOWS,
             0,
-            natural_starts.size()
+            natural_windows.size()
         );
-        for (size_t index = 0; index < natural_starts.size(); ++index) {
-            const double start_seconds = static_cast<double>(natural_starts[index])
-                / pitchee::kSampleRate;
-            const double window_duration = static_cast<double>(
-                std::min(
-                    static_cast<size_t>(pitchee::kPatchSamples),
-                    signal.size() - natural_starts[index]
-                )
+        for (size_t index = 0; index < natural_windows.size(); ++index) {
+            const double start_seconds = static_cast<double>(
+                natural_windows[index].start
+            ) / pitchee::kSampleRate;
+            const double end_seconds = static_cast<double>(
+                natural_windows[index].start + natural_windows[index].length
             ) / pitchee::kSampleRate;
             std::vector<float> window_features = natural_embeddings[index];
             pitchee::normalize_l2(
@@ -593,16 +592,13 @@ pitchee_status_t analyze_pcm_impl(
             );
             pitchee::NaturalnessWindow window;
             window.start_seconds = start_seconds;
-            window.end_seconds = std::min(
-                source_seconds,
-                start_seconds + window_duration
-            );
+            window.end_seconds = end_seconds;
             window.score = analyzer->naturalness->score(window_features);
             result.naturalness_windows.push_back(window);
             reporter.progress(
                 PITCHEE_PROGRESS_STAGE_SCORING_NATURALNESS_WINDOWS,
                 index + 1,
-                natural_starts.size()
+                natural_windows.size()
             );
         }
 

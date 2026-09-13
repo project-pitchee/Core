@@ -6,7 +6,6 @@
 #include <limits>
 #include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace pitchee {
@@ -62,6 +61,11 @@ struct F0Window {
     double end_seconds = 0.0;
     bool has_f0 = false;
     double f0_hz = 0.0;
+};
+
+struct SampleWindow {
+    size_t start = 0;
+    size_t length = 0;
 };
 
 struct AnalysisResult {
@@ -132,20 +136,21 @@ std::vector<float> resample_mono(
     int target_rate = kSampleRate
 );
 
-std::vector<float> concatenate_speech(
-    const std::vector<float>& samples,
-    const std::vector<VadSegment>& segments
-);
-
-std::pair<double, double> map_speech_range_to_source(
+std::vector<SampleWindow> native_speech_windows(
+    size_t sample_count,
     const std::vector<VadSegment>& segments,
-    double speech_start_seconds,
-    double speech_end_seconds
+    size_t stride_samples = kStrideSamples
 );
 
-std::vector<float> crop_patch(const std::vector<float>& signal, size_t start);
-std::vector<size_t> sliding_patch_starts(size_t sample_count);
-std::vector<size_t> naturalness_patch_starts(size_t sample_count);
+std::vector<SampleWindow> select_naturalness_windows(
+    const std::vector<SampleWindow>& windows,
+    size_t maximum = 24
+);
+
+std::vector<float> crop_window(
+    const std::vector<float>& signal,
+    const SampleWindow& window
+);
 
 void normalize_l2(float* values, size_t size);
 

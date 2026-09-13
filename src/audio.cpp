@@ -171,118 +171,72 @@ std::vector<float> resample_mono(
     return output;
 }
 
-std::vector<float> concatenate_speech(
-    const std::vector<float>& samples,
-    const std::vector<VadSegment>& segments
+std::vector<SampleWindow> native_speech_windows(
+    size_t sample_count,
+    const std::vector<VadSegment>& segments,
+    size_t stride_samples
 ) {
-    std::vector<float> speech;
+    std::vector<SampleWindow> windows;
+    if (stride_samples == 0) stride_samples = 1;
     for (const auto& segment : segments) {
-        const size_t start = std::max(
-            0,
-            static_cast<int>(segment.source_start_seconds * kSampleRate)
+        const size_t first = std::min(
+            sample_count,
+            static_cast<size_t>(segment.source_start_seconds * kSampleRate)
         );
-        const size_t end = std::min(
-            samples.size(),
+        const size_t last = std::min(
+            sample_count,
             static_cast<size_t>(segment.source_end_seconds * kSampleRate)
         );
-        if (end > start) {
-            speech.insert(speech.end(), samples.begin() + start, samples.begin() + end);
+        if (last <= first) continue;
+        const size_t length = last - first;
+        if (length <= static_cast<size_t>(kPatchSamples)) {
+            windows.push_back({first, length});
+            continue;
+        }
+
+        const size_t maximum_start = length - kPatchSamples;
+        size_t last_start = 0;
+        bool added = false;
+        for (size_t start = 0; start <= maximum_start; start += stride_samples) {
+            windows.push_back({first + start, kPatchSamples});
+            last_start = start;
+            added = true;
+        }
+        if (!added || last_start != maximum_start) {
+            windows.push_back({first + maximum_start, kPatchSamples});
         }
     }
-    return speech;
+    return windows;
 }
 
-std::pair<double, double> map_speech_range_to_source(
-    const std::vector<VadSegment>& segments,
-    double speech_start_seconds,
-    double speech_end_seconds
+std::vector<SampleWindow> select_naturalness_windows(
+    const std::vector<SampleWindow>& windows,
+    size_t maximum
 ) {
-    if (segments.empty()) return {0.0, 0.0};
-
-    const double total_speech_seconds = segments.back().speech_end_seconds;
-    const double start = std::max(
-        0.0,
-        std::min(total_speech_seconds, speech_start_seconds)
-    );
-    const double end = std::max(
-        start,
-        std::min(total_speech_seconds, speech_end_seconds)
-    );
-    constexpr double kBoundaryEpsilon = 1e-9;
-    double source_start = segments.back().source_start_seconds;
-    double source_end = segments.back().source_end_seconds;
-
-    // At a boundary, a window start belongs to the following speech segment;
-    // a window end belongs to the preceding one. This preserves the full
-    // original-time span even when the window crosses removed silence.
-    for (const auto& segment : segments) {
-        if (start < segment.speech_end_seconds - kBoundaryEpsilon) {
-            const double offset = std::max(
-                0.0,
-                start - segment.speech_start_seconds
-            );
-            source_start = segment.source_start_seconds + offset;
-            break;
-        }
-    }
-    for (const auto& segment : segments) {
-        if (end <= segment.speech_end_seconds + kBoundaryEpsilon) {
-            const double offset = std::max(
-                0.0,
-                std::min(
-                    segment.speech_end_seconds - segment.speech_start_seconds,
-                    end - segment.speech_start_seconds
-                )
-            );
-            source_end = segment.source_start_seconds + offset;
-            break;
-        }
-    }
-    return {source_start, std::max(source_start, source_end)};
-}
-
-std::vector<float> crop_patch(const std::vector<float>& signal, size_t start) {
-    std::vector<float> patch(kPatchSamples, 0.0f);
-    if (start >= signal.size()) return patch;
-    const size_t count = std::min(
-        static_cast<size_t>(kPatchSamples),
-        signal.size() - start
-    );
-    std::copy_n(signal.begin() + static_cast<std::ptrdiff_t>(start), count, patch.begin());
-    return patch;
-}
-
-std::vector<size_t> sliding_patch_starts(size_t sample_count) {
-    if (sample_count <= static_cast<size_t>(kPatchSamples)) return {0};
-    std::vector<size_t> starts;
-    for (size_t start = 0; start <= sample_count - kPatchSamples; start += kStrideSamples) {
-        starts.push_back(start);
-    }
-    const size_t final_start = sample_count - kPatchSamples;
-    if (starts.empty() || starts.back() != final_start) starts.push_back(final_start);
-    return starts;
-}
-
-std::vector<size_t> naturalness_patch_starts(size_t sample_count) {
-    const size_t patch_count = std::min<size_t>(
-        24,
-        std::max<size_t>(1, sample_count / kPatchSamples)
-    );
-    if (patch_count == 1) return {0};
-    const size_t maximum_start = sample_count > kPatchSamples
-        ? sample_count - kPatchSamples
-        : 0;
-    std::vector<size_t> starts;
-    starts.reserve(patch_count);
-    for (size_t index = 0; index < patch_count; ++index) {
-        starts.push_back(
-            static_cast<size_t>(
-                static_cast<double>(index) * maximum_start
-                / static_cast<double>(patch_count - 1)
-            )
+    if (maximum == 0 || windows.size() <= maximum) return windows;
+    if (maximum == 1) return {windows[windows.size() / 2]};
+    std::vector<SampleWindow> selected;
+    selected.reserve(maximum);
+    for (size_t index = 0; index < maximum; ++index) {
+        const size_t source_index = static_cast<size_t>(
+            static_cast<double>(index) * (windows.size() - 1)
+            / static_cast<double>(maximum - 1)
         );
+        selected.push_back(windows[source_index]);
     }
-    return starts;
+    return selected;
+}
+
+std::vector<float> crop_window(
+    const std::vector<float>& signal,
+    const SampleWindow& window
+) {
+    if (window.start >= signal.size() || window.length == 0) return {};
+    const size_t count = std::min(window.length, signal.size() - window.start);
+    return std::vector<float>(
+        signal.begin() + static_cast<std::ptrdiff_t>(window.start),
+        signal.begin() + static_cast<std::ptrdiff_t>(window.start + count)
+    );
 }
 
 void normalize_l2(float* values, size_t size) {

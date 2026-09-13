@@ -170,11 +170,11 @@ The result is deliberately data-only:
 ```
 
 `f0.windows`, `naturalness.windows`, and `vfp.windows` all expose the original
-analyzed-audio timeline. VFP inference internally uses concatenated speech, and
-each window's source start/end is mapped through `vad.segments`. A window that
-crosses multiple retained speech segments therefore spans the removed silence
-between them. There is no timeline geometry, color band, label, player state,
-or other UI concept in the result.
+analyzed-audio timeline. VFP and naturalness windows are generated only inside
+retained VAD speech segments and never cross removed silence. A speech segment
+shorter than the model patch is processed at its exact length without padding.
+There is no timeline geometry, color band, label, player state, or other UI
+concept in the result.
 
 ## Composite score helper
 

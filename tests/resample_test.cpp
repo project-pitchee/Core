@@ -42,29 +42,47 @@ int main() {
         );
     }
 
-    const std::vector<pitchee::VadSegment> segments{
-        {1.0, 2.0, 0.0, 1.0},
-        {3.0, 4.0, 1.0, 2.0},
-    };
-    const auto within_segment = pitchee::map_speech_range_to_source(
-        segments,
-        0.1,
-        0.2
+    const auto short_windows = pitchee::native_speech_windows(
+        32000,
+        {{1.0, 1.0625, 0.0, 0.0625}},
+        1600
     );
     require(
-        std::abs(within_segment.first - 1.1) <= 1e-9
-            && std::abs(within_segment.second - 1.2) <= 1e-9,
-        "source mapping within segment"
+        short_windows.size() == 1
+            && short_windows[0].start == 16000
+            && short_windows[0].length == 1000,
+        "short speech window is not padded"
     );
-    const auto across_segments = pitchee::map_speech_range_to_source(
-        segments,
-        0.9,
-        1.1
+
+    const size_t first = 1000;
+    const size_t second = first + pitchee::kPatchSamples + 4000;
+    const auto full_windows = pitchee::native_speech_windows(
+        second + pitchee::kPatchSamples + 3200,
+        {
+            {
+                static_cast<double>(first) / pitchee::kSampleRate,
+                static_cast<double>(first + pitchee::kPatchSamples)
+                    / pitchee::kSampleRate,
+                0.0,
+                0.0,
+            },
+            {
+                static_cast<double>(second) / pitchee::kSampleRate,
+                static_cast<double>(second + pitchee::kPatchSamples + 3200)
+                    / pitchee::kSampleRate,
+                0.0,
+                0.0,
+            },
+        },
+        1600
     );
     require(
-        std::abs(across_segments.first - 1.9) <= 1e-9
-            && std::abs(across_segments.second - 3.1) <= 1e-9,
-        "source mapping across segments"
+        full_windows.size() == 4
+            && full_windows[0].start == first
+            && full_windows[1].start == second
+            && full_windows[2].start == second + 1600
+            && full_windows[3].start == second + 3200,
+        "long speech windows remain 1515 ms and do not cross segments"
     );
     std::cout << "PitcheeCore resampling test passed\n";
     return 0;

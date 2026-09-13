@@ -1,8 +1,8 @@
 {
   "modelVersion": "2026-09",
   "files": {
-    "ECAPA.onnx": "0a939436d34c7f56a7218a06239f693f3fe231d44caebe1a5d6756c5cf1e4d26",
-    "ECAPAFrontend.onnx": "cd172cc1c579226f748df2c955b306e255f1d475341cfe0c648eed8977604aa6",
+    "ECAPA.onnx": "37779fcd2ff869d709dd474396df441fead9788a17d354be6827ae52fc1f9a75",
+    "ECAPAFrontend.onnx": "76fad551184804d1d41ea3c8444952197edb332253e06cffd9244cb535828e09",
     "SileroVAD.onnx": "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3",
     "SwiftF0.onnx": "7e2390db8379cd9e1e2b22828e55b45b57c8559e4c8335678c717dc245c18176",
     "VFPHead.onnx": "0a127dd780bee0bea62101611550f3a20e23022433b605a2bcb6e1957529fbae",
