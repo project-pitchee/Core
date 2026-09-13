@@ -456,7 +456,7 @@ base_score = 100 × (
 | `rule` | 条件 | 处理 |
 | --- | --- | --- |
 | `pass_boost` | `F0 > 165`，`N > 80`，`S > 50` | 平滑提升，最高到 100 |
-| `high_f0_stylized_cap` | `F0 > 165`，`N < 50`，`S > 50` | 最高 45 |
+| `high_f0_stylized_cap` | `F0 > 165`，`N < 50`，`S` 任意 | 最高 30 |
 | `low_f0_natural_cap` | `F0 <= 165`，`N >= 50` | 最高 59 |
 | `low_f0_stylized_cap` | `F0 <= 165`，`N < 50` | 最高 20 |
 | `high_f0_male_cap` | `F0 > 165`，`N >= 50`，`S < 50` | 最高 59 |

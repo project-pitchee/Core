@@ -55,10 +55,10 @@ CompositeScore calculate_composite_score(
             output.score_boosted = true;
         }
         output.score_rule = "pass_boost";
-    } else if (f0_hz > 165.0 && naturalness < 50.0 && standard > 50.0) {
+    } else if (f0_hz > 165.0 && naturalness < 50.0) {
         output.score_rule = "high_f0_stylized_cap";
         output.has_score_cap = true;
-        output.score_cap = 45.0;
+        output.score_cap = 30.0;
     } else if (f0_hz <= 165.0 && naturalness >= 50.0) {
         output.score_rule = "low_f0_natural_cap";
         output.has_score_cap = true;

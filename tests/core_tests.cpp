@@ -38,11 +38,25 @@ int main() {
             == PITCHEE_SUCCESS,
         "cap call"
     );
-    require(close(score.final_score, 45.0), "stylized cap");
+    require(close(score.final_score, 30.0), "stylized cap");
     require(score.score_limited == 1, "cap flag");
     require(
         std::string(score.score_rule) == "high_f0_stylized_cap",
         "cap rule"
+    );
+
+    require(
+        pitchee_composite_score(20.0, 20.0, 180.0, 1, &score)
+            == PITCHEE_SUCCESS,
+        "low standard cap call"
+    );
+    require(
+        score.final_score <= 30.0,
+        "low standard remains within cap"
+    );
+    require(
+        std::string(score.score_rule) == "high_f0_stylized_cap",
+        "low standard cap rule"
     );
 
     require(
