@@ -209,24 +209,6 @@ std::vector<SampleWindow> native_speech_windows(
     return windows;
 }
 
-std::vector<SampleWindow> select_naturalness_windows(
-    const std::vector<SampleWindow>& windows,
-    size_t maximum
-) {
-    if (maximum == 0 || windows.size() <= maximum) return windows;
-    if (maximum == 1) return {windows[windows.size() / 2]};
-    std::vector<SampleWindow> selected;
-    selected.reserve(maximum);
-    for (size_t index = 0; index < maximum; ++index) {
-        const size_t source_index = static_cast<size_t>(
-            static_cast<double>(index) * (windows.size() - 1)
-            / static_cast<double>(maximum - 1)
-        );
-        selected.push_back(windows[source_index]);
-    }
-    return selected;
-}
-
 std::vector<float> crop_window(
     const std::vector<float>& signal,
     const SampleWindow& window

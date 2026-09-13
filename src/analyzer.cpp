@@ -505,10 +505,8 @@ pitchee_status_t analyze_pcm_impl(
             0,
             1
         );
-        const auto natural_windows = pitchee::select_naturalness_windows(
-            source_windows,
-            24
-        );
+        // Naturalness uses the exact VFP window set on the source timeline.
+        const auto& natural_windows = source_windows;
         std::vector<std::vector<float>> natural_patches;
         natural_patches.reserve(natural_windows.size());
         for (const auto& window : natural_windows) {

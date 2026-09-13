@@ -142,11 +142,6 @@ std::vector<SampleWindow> native_speech_windows(
     size_t stride_samples = kStrideSamples
 );
 
-std::vector<SampleWindow> select_naturalness_windows(
-    const std::vector<SampleWindow>& windows,
-    size_t maximum = 24
-);
-
 std::vector<float> crop_window(
     const std::vector<float>& signal,
     const SampleWindow& window
