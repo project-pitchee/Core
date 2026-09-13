@@ -497,6 +497,9 @@ models/
 调用 `pitchee_analyzer_create(model_directory, ...)` 时，目录中必须存在这些
 文件。模型只加载一次，Core 不需要网络，也不会自动下载模型。
 
+`VFPHead.onnx`、`Naturalness.onnx` 和官方 `SwiftF0.onnx` 均使用未压缩的
+FP32 权重。`ECAPA.onnx` 当前仍为 FP16 权重，用于控制移动端包体和内存占用。
+
 ## 线程与生命周期
 
 - 模型在 `pitchee_analyzer_create()` 中加载。
