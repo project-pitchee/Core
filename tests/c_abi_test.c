@@ -41,5 +41,29 @@ int main(void) {
         fprintf(stderr, "unexpected progress API status\n");
         return 1;
     }
+
+    if (pitchee_realtime_f0_create(
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            0
+        ) != PITCHEE_ERROR_INVALID_ARGUMENT) {
+        fprintf(stderr, "unexpected realtime F0 create status\n");
+        return 1;
+    }
+    if (pitchee_realtime_f0_process(
+            NULL,
+            NULL,
+            0,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            0
+        ) != PITCHEE_ERROR_INVALID_ARGUMENT) {
+        fprintf(stderr, "unexpected realtime F0 process status\n");
+        return 1;
+    }
     return 0;
 }

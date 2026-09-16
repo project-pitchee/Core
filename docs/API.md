@@ -98,6 +98,44 @@ the `PITCHEE_PROGRESS_STAGE_` prefix.
 Callbacks run synchronously on the thread performing analysis. The same
 analyzer must not be used concurrently.
 
+## Realtime F0
+
+Create one stream per microphone session:
+
+```c
+pitchee_realtime_f0_options_t options = {5120, 256, 0};
+pitchee_realtime_f0_t* stream = NULL;
+
+pitchee_realtime_f0_create(
+    analyzer,
+    &options,
+    &stream,
+    error,
+    sizeof(error)
+);
+```
+
+`pitchee_realtime_f0_process()` accepts any number of 16 kHz mono Float32
+samples. It keeps the latest 320 ms context, runs SwiftF0 every 16 ms of new
+audio, and invokes the callback once per new F0 frame:
+
+```c
+void on_f0_frame(const pitchee_f0_frame_t* frame, void* user_data);
+```
+
+Each frame contains:
+
+| Field | Meaning |
+| --- | --- |
+| `timestamp_seconds` | Monotonic timestamp since the stream was reset. |
+| `f0_hz` | Raw SwiftF0 estimate. |
+| `confidence` | SwiftF0 confidence in `[0, 1]`. |
+| `voiced` | `1` when confidence is above `0.9` and F0 is in `75–600 Hz`. |
+
+The first callback occurs after the full context is available. Call
+`pitchee_realtime_f0_reset()` when starting a new recording without recreating
+the stream. The analyzer must outlive every stream created from it.
+
 ## WAV file input
 
 ```c

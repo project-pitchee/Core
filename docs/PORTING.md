@@ -9,6 +9,7 @@
 - VFP probabilities
 - Naturalness aggregate and per-window scores
 - 0.1-second SwiftF0 pitch timeline
+- Realtime chunk-buffered SwiftF0 frames
 - Composite score
 
 ## What each platform owns

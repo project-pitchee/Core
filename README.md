@@ -243,6 +243,60 @@ status = pitchee_analyzer_analyze_wav_file_with_progress(
 `DETECTING_SPEECH`、VFP 批处理、自然度窗口评分会持续更新实际完成数；
 单项任务阶段使用 `0/1` 和 `1/1`。
 
+### 实时 F0
+
+实时 F0 接口复用同一个 analyzer 中已加载的 SwiftF0 session。输入必须是
+16 kHz mono Float32 PCM；Core 不负责麦克风采集或重采样。
+
+```c
+pitchee_realtime_f0_t* f0_stream = NULL;
+pitchee_realtime_f0_options_t f0_options = {5120, 256, 0};
+
+pitchee_realtime_f0_create(
+    analyzer,
+    &f0_options,
+    &f0_stream,
+    error,
+    sizeof(error)
+);
+
+void f0_callback(const pitchee_f0_frame_t* frame, void* user_data) {
+    if (frame->voiced) {
+        /* frame->timestamp_seconds */
+        /* frame->f0_hz */
+        /* frame->confidence */
+    }
+}
+
+pitchee_realtime_f0_process(
+    f0_stream,
+    samples,
+    sample_count,
+    f0_callback,
+    NULL,
+    NULL,
+    error,
+    sizeof(error)
+);
+
+pitchee_realtime_f0_reset(f0_stream);
+pitchee_realtime_f0_destroy(f0_stream);
+```
+
+默认参数：
+
+| 字段 | 默认值 | 含义 |
+| --- | ---: | --- |
+| `context_samples` | `5120` | 每次推理使用的最近 320 ms 音频 |
+| `hop_samples` | `256` | 每收到 16 ms 新音频更新一次 |
+
+SwiftF0 每帧时间步长是 256 samples。Core 使用重叠上下文维持低频稳定性，
+并对重复帧按整数 sample index 去重。`voiced` 为 Core 的显示判定，当前要求
+置信度大于 `0.9` 且 F0 位于 `75–600 Hz`。
+
+同一个实时流必须串行调用；不同流可以使用不同 analyzer。analyzer 的生命周期
+必须长于其创建的实时流。
+
 ## Output
 
 输入一段有效音频后，会返回一个 UTF-8 JSON。下面是示例，数组内容省略了一部分：

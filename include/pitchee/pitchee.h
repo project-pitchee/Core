@@ -23,6 +23,7 @@ extern "C" {
 #endif
 
 typedef struct pitchee_analyzer_t pitchee_analyzer_t;
+typedef struct pitchee_realtime_f0_t pitchee_realtime_f0_t;
 
 typedef enum pitchee_status_t {
     PITCHEE_SUCCESS = 0,
@@ -74,6 +75,25 @@ typedef struct pitchee_progress_t {
 
 typedef void (*pitchee_progress_callback_t)(
     const pitchee_progress_t* progress,
+    void* user_data
+);
+
+typedef struct pitchee_realtime_f0_options_t {
+    int32_t context_samples;
+    int32_t hop_samples;
+    int32_t reserved;
+} pitchee_realtime_f0_options_t;
+
+typedef struct pitchee_f0_frame_t {
+    double timestamp_seconds;
+    float f0_hz;
+    float confidence;
+    int32_t voiced;
+    int32_t reserved;
+} pitchee_f0_frame_t;
+
+typedef void (*pitchee_f0_frame_callback_t)(
+    const pitchee_f0_frame_t* frame,
     void* user_data
 );
 
@@ -156,6 +176,29 @@ PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_wav_file_with_progress(
     char* error_message,
     size_t error_message_capacity
 );
+
+PITCHEE_API pitchee_status_t pitchee_realtime_f0_create(
+    pitchee_analyzer_t* analyzer,
+    const pitchee_realtime_f0_options_t* options,
+    pitchee_realtime_f0_t** out_stream,
+    char* error_message,
+    size_t error_message_capacity
+);
+
+PITCHEE_API pitchee_status_t pitchee_realtime_f0_process(
+    pitchee_realtime_f0_t* stream,
+    const float* samples,
+    size_t sample_count,
+    pitchee_f0_frame_callback_t frame_callback,
+    void* user_data,
+    size_t* out_frame_count,
+    char* error_message,
+    size_t error_message_capacity
+);
+
+PITCHEE_API void pitchee_realtime_f0_reset(pitchee_realtime_f0_t* stream);
+
+PITCHEE_API void pitchee_realtime_f0_destroy(pitchee_realtime_f0_t* stream);
 
 PITCHEE_API pitchee_status_t pitchee_composite_score(
     double vfp_standard_score,
