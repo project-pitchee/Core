@@ -177,7 +177,7 @@ The result is deliberately data-only:
     "segments": []
   },
   "f0": {
-    "window_seconds": 0.1,
+    "window_seconds": 0.05,
     "mean_hz": null,
     "standard_deviation_hz": null,
     "voiced_frame_count": 0,

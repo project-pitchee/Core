@@ -37,7 +37,7 @@ int main() {
     require(contains(json, "\"schema_version\":2"), "schema version");
     require(!contains(json, "\"models\""), "models removed");
     require(!contains(json, "raw_female_score"), "raw score removed");
-    require(contains(json, "\"f0\":{\"window_seconds\":0.1"), "f0 section");
+    require(contains(json, "\"f0\":{\"window_seconds\":0.05"), "f0 section");
     require(contains(json, "\"vfp\":{\"vfp_standard_score\":12.5"), "vfp section");
     require(
         contains(json, "\"naturalness\":{\"score\":67.5"),

@@ -79,7 +79,7 @@ std::string result_to_json(const AnalysisResult& result) {
     output << "]},";
 
     output << "\"f0\":{";
-    output << "\"window_seconds\":0.1,";
+    output << "\"window_seconds\":0.05,";
     output << "\"mean_hz\":" << optional_number(result.has_f0, result.f0_mean_hz) << ",";
     output << "\"standard_deviation_hz\":"
            << optional_number(result.has_f0, result.f0_standard_deviation_hz) << ",";

@@ -41,7 +41,7 @@ struct pitchee_realtime_f0_t {
 
 namespace {
 
-constexpr double kF0WindowSeconds = 0.1;
+constexpr double kF0WindowSeconds = 0.05;
 
 struct ProgressReporter {
     pitchee_phase_callback_t phase_callback = nullptr;

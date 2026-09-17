@@ -8,7 +8,7 @@
 - ECAPA embeddings
 - VFP probabilities
 - Naturalness aggregate and per-window scores
-- 0.1-second SwiftF0 pitch timeline
+- 0.05-second SwiftF0 pitch timeline
 - Realtime chunk-buffered SwiftF0 frames
 - Composite score
 
