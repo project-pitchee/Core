@@ -208,6 +208,16 @@ PITCHEE_API pitchee_status_t pitchee_composite_score(
     pitchee_composite_score_t* out_score
 );
 
+/*
+ * Convenience form using exactly three metrics. Pass NAN or a non-positive
+ * f0_hz when no valid F0 is available. The returned value is clamped to 0-100.
+ */
+PITCHEE_API double pitchee_composite_score_value(
+    double vfp_standard_score,
+    double naturalness_score,
+    double f0_hz
+);
+
 PITCHEE_API void pitchee_string_free(char* value);
 
 #ifdef __cplusplus

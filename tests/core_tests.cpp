@@ -67,6 +67,15 @@ int main() {
     require(close(score.final_score, 63.0), "no f0 fallback");
     require(std::string(score.score_rule) == "f0_unavailable", "no f0 rule");
 
+    require(
+        close(pitchee_composite_score_value(90.0, 100.0, 200.0), 100.0),
+        "three-metric composite score"
+    );
+    require(
+        close(pitchee_composite_score_value(63.0, 90.0, 0.0), 63.0),
+        "three-metric f0 fallback"
+    );
+
     std::cout << "PitcheeCore C++ tests passed\n";
     return 0;
 }

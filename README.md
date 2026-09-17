@@ -489,6 +489,18 @@ Core 不对语音段做拼接。长语音段按 1.515 秒窗口和 0.1 秒步长
 
 ## 综合分规则
 
+如果只需要最终分数，Core 提供三指标便捷接口：
+
+```c
+double final_score = pitchee_composite_score_value(
+    vfp_standard_score,
+    naturalness_score,
+    f0_hz
+);
+```
+
+没有有效 F0 时，`f0_hz` 传 `NAN` 或 `<= 0`。
+
 令：
 
 ```text
