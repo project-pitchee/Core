@@ -10,6 +10,7 @@
 - Naturalness aggregate and per-window scores
 - 0.05-second SwiftF0 pitch timeline
 - Realtime chunk-buffered SwiftF0 frames
+- Streaming STFT spectrum frames and spectral summary metrics
 - Composite score
 
 ## What each platform owns

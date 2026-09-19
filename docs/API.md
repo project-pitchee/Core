@@ -136,6 +136,41 @@ The first callback occurs after the full context is available. Call
 `pitchee_realtime_f0_reset()` when starting a new recording without recreating
 the stream. The analyzer must outlive every stream created from it.
 
+## Spectrum
+
+Spectrum is independent of model loading and ONNX Runtime:
+
+```c
+pitchee_spectrum_options_t options = {
+    2048, 256, 40, 8000,
+    PITCHEE_SPECTRUM_DBFS, 0.65f, 0
+};
+pitchee_spectrum_t* spectrum = NULL;
+
+pitchee_spectrum_create(
+    &options,
+    &spectrum,
+    error,
+    sizeof(error)
+);
+```
+
+`pitchee_spectrum_process()` accepts any number of 16 kHz mono Float32 samples
+and emits one frame every 256 samples after the first full FFT window:
+
+```c
+void on_spectrum_frame(
+    const pitchee_spectrum_frame_t* frame,
+    void* user_data
+);
+```
+
+Each frame contains a pointer to float magnitudes, the first FFT bin index,
+frequency spacing, and summary values `peak_hz`, `centroid_hz`, `rolloff_hz`,
+and `flatness`. The magnitude pointer is valid only during the callback.
+Smoothing is applied to linear magnitudes before conversion to amplitude, power,
+or dBFS.
+
 ## WAV file input
 
 ```c

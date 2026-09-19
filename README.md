@@ -297,6 +297,53 @@ SwiftF0 每帧时间步长是 256 samples。Core 使用重叠上下文维持低�
 同一个实时流必须串行调用；不同流可以使用不同 analyzer。analyzer 的生命周期
 必须长于其创建的实时流。
 
+### Spectrum 频谱
+
+Spectrum 是完全独立的接口，不需要 ONNX Runtime，也不需要 analyzer：
+
+```c
+pitchee_spectrum_options_t options = {
+    2048, 256, 40, 8000,
+    PITCHEE_SPECTRUM_DBFS, 0.65f, 0
+};
+pitchee_spectrum_t* spectrum = NULL;
+
+pitchee_spectrum_create(
+    &options,
+    &spectrum,
+    error,
+    sizeof(error)
+);
+
+void spectrum_callback(
+    const pitchee_spectrum_frame_t* frame,
+    void* user_data
+) {
+    /* frame->magnitudes 只在回调期间有效。 */
+    /* frame->bin_count / frame->first_bin_index / frame->bin_hz */
+    /* frame->peak_hz / frame->centroid_hz / frame->rolloff_hz / frame->flatness */
+}
+
+pitchee_spectrum_process(
+    spectrum,
+    samples,
+    sample_count,
+    spectrum_callback,
+    NULL,
+    NULL,
+    error,
+    sizeof(error)
+);
+
+pitchee_spectrum_reset(spectrum);
+pitchee_spectrum_destroy(spectrum);
+```
+
+默认参数为 2048 点 Hann FFT、256 samples 步长、40–8000 Hz、dBFS 和
+`0.65` 线性幅度平滑。输出只包含 `min_hz–max_hz` 范围内的 bins；使用
+`first_bin_index + i` 和 `bin_hz` 计算每个 bin 的实际频率。Spectrum 输入
+同样要求 16 kHz mono Float32 PCM。
+
 ## Output
 
 输入一段有效音频后，会返回一个 UTF-8 JSON。下面是示例，数组内容省略了一部分：

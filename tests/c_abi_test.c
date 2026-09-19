@@ -65,5 +65,27 @@ int main(void) {
         fprintf(stderr, "unexpected realtime F0 process status\n");
         return 1;
     }
+    if (pitchee_spectrum_create(
+            NULL,
+            NULL,
+            NULL,
+            0
+        ) != PITCHEE_ERROR_INVALID_ARGUMENT) {
+        fprintf(stderr, "unexpected spectrum create status\n");
+        return 1;
+    }
+    if (pitchee_spectrum_process(
+            NULL,
+            NULL,
+            0,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            0
+        ) != PITCHEE_ERROR_INVALID_ARGUMENT) {
+        fprintf(stderr, "unexpected spectrum process status\n");
+        return 1;
+    }
     return 0;
 }

@@ -24,6 +24,7 @@ extern "C" {
 
 typedef struct pitchee_analyzer_t pitchee_analyzer_t;
 typedef struct pitchee_realtime_f0_t pitchee_realtime_f0_t;
+typedef struct pitchee_spectrum_t pitchee_spectrum_t;
 
 typedef enum pitchee_status_t {
     PITCHEE_SUCCESS = 0,
@@ -94,6 +95,40 @@ typedef struct pitchee_f0_frame_t {
 
 typedef void (*pitchee_f0_frame_callback_t)(
     const pitchee_f0_frame_t* frame,
+    void* user_data
+);
+
+typedef enum pitchee_spectrum_value_t {
+    PITCHEE_SPECTRUM_AMPLITUDE = 0,
+    PITCHEE_SPECTRUM_POWER = 1,
+    PITCHEE_SPECTRUM_DBFS = 2
+} pitchee_spectrum_value_t;
+
+typedef struct pitchee_spectrum_options_t {
+    int32_t fft_size;
+    int32_t hop_samples;
+    int32_t min_hz;
+    int32_t max_hz;
+    pitchee_spectrum_value_t value_type;
+    float smoothing;
+    int32_t reserved;
+} pitchee_spectrum_options_t;
+
+typedef struct pitchee_spectrum_frame_t {
+    double timestamp_seconds;
+    const float* magnitudes;
+    size_t bin_count;
+    size_t first_bin_index;
+    float bin_hz;
+    float peak_hz;
+    float centroid_hz;
+    float rolloff_hz;
+    float flatness;
+    int32_t reserved;
+} pitchee_spectrum_frame_t;
+
+typedef void (*pitchee_spectrum_callback_t)(
+    const pitchee_spectrum_frame_t* frame,
     void* user_data
 );
 
@@ -199,6 +234,28 @@ PITCHEE_API pitchee_status_t pitchee_realtime_f0_process(
 PITCHEE_API void pitchee_realtime_f0_reset(pitchee_realtime_f0_t* stream);
 
 PITCHEE_API void pitchee_realtime_f0_destroy(pitchee_realtime_f0_t* stream);
+
+PITCHEE_API pitchee_status_t pitchee_spectrum_create(
+    const pitchee_spectrum_options_t* options,
+    pitchee_spectrum_t** out_spectrum,
+    char* error_message,
+    size_t error_message_capacity
+);
+
+PITCHEE_API pitchee_status_t pitchee_spectrum_process(
+    pitchee_spectrum_t* spectrum,
+    const float* samples,
+    size_t sample_count,
+    pitchee_spectrum_callback_t frame_callback,
+    void* user_data,
+    size_t* out_frame_count,
+    char* error_message,
+    size_t error_message_capacity
+);
+
+PITCHEE_API void pitchee_spectrum_reset(pitchee_spectrum_t* spectrum);
+
+PITCHEE_API void pitchee_spectrum_destroy(pitchee_spectrum_t* spectrum);
 
 PITCHEE_API pitchee_status_t pitchee_composite_score(
     double vfp_standard_score,
