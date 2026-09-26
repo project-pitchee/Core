@@ -1,7 +1,10 @@
 #include "internal.hpp"
 
 #include <cmath>
+#include <fstream>
 #include <iomanip>
+#include <iterator>
+#include <regex>
 #include <sstream>
 
 namespace pitchee {
@@ -19,6 +22,22 @@ std::string optional_number(bool present, double value) {
 }
 
 }  // namespace
+
+std::string model_version_from_directory(const std::filesystem::path& directory) {
+    std::ifstream manifest(directory / "manifest.json");
+    if (!manifest) return "unknown";
+    const std::string contents{
+        std::istreambuf_iterator<char>(manifest),
+        std::istreambuf_iterator<char>()
+    };
+    // Manifest versions are plain version tags. Missing or invalid metadata
+    // must not be mistaken for a following field or a bundled model version.
+    static const std::regex pattern(
+        R"version("modelVersion"\s*:\s*"([A-Za-z0-9][A-Za-z0-9._+-]*)"\s*[,}])version"
+    );
+    std::smatch match;
+    return std::regex_search(contents, match, pattern) ? match[1].str() : "unknown";
+}
 
 std::string escape_json(const std::string& value) {
     std::string output;
@@ -49,8 +68,9 @@ std::string escape_json(const std::string& value) {
 std::string result_to_json(const AnalysisResult& result) {
     std::ostringstream output;
     output << "{";
-    output << "\"schema_version\":2,";
-    output << "\"model_version\":\"2026-09\",";
+    output << "\"schema_version\":" << kSchemaVersion << ",";
+    output << "\"model_version\":\""
+           << escape_json(result.model_version) << "\",";
 
     output << "\"audio\":{";
     output << "\"source_sample_rate\":" << result.source_sample_rate << ",";

@@ -141,6 +141,11 @@ if(PITCHEE_BUILD_TESTS)
     target_link_libraries(pitchee_spectrum_test PRIVATE pitchee_core)
     add_test(NAME pitchee_spectrum_test COMMAND pitchee_spectrum_test)
 
+    add_executable(pitchee_wav_reader_test tests/wav_reader_test.cpp src/wav_reader.cpp)
+    target_compile_features(pitchee_wav_reader_test PRIVATE cxx_std_17)
+    target_include_directories(pitchee_wav_reader_test PRIVATE src)
+    add_test(NAME pitchee_wav_reader_test COMMAND pitchee_wav_reader_test)
+
     add_executable(pitchee_c_abi_test tests/c_abi_test.c)
     target_link_libraries(pitchee_c_abi_test PRIVATE pitchee_core)
     add_test(NAME pitchee_c_abi_test COMMAND pitchee_c_abi_test)

@@ -13,9 +13,10 @@ uint16_t read_u16(const unsigned char* data) {
 }
 
 uint32_t read_u32(const unsigned char* data) {
-    return static_cast<uint32_t>(
-        data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24)
-    );
+    return static_cast<uint32_t>(data[0])
+        | (static_cast<uint32_t>(data[1]) << 8)
+        | (static_cast<uint32_t>(data[2]) << 16)
+        | (static_cast<uint32_t>(data[3]) << 24);
 }
 
 }  // namespace

@@ -78,6 +78,9 @@ std::vector<float> resample_mono(
         || target_rate <= 0) {
         throw std::invalid_argument("invalid PCM buffer");
     }
+    if (sample_count % static_cast<size_t>(channels) != 0) {
+        throw std::invalid_argument("PCM sample count is not frame-aligned");
+    }
     const size_t frame_count = sample_count / static_cast<size_t>(channels);
     if (frame_count == 0) return {};
 

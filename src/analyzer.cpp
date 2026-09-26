@@ -17,6 +17,7 @@
 
 struct pitchee_analyzer_t {
     std::filesystem::path model_directory;
+    std::string model_version = "unknown";
     int intra_op_threads = 2;
     bool use_coreml = true;
     std::unique_ptr<pitchee::OrtModel> ecapa_frontend;
@@ -384,6 +385,9 @@ pitchee_status_t pitchee_analyzer_create(
     try {
         auto analyzer = std::make_unique<pitchee_analyzer_t>();
         analyzer->model_directory = model_directory;
+        analyzer->model_version = pitchee::model_version_from_directory(
+            analyzer->model_directory
+        );
         analyzer->intra_op_threads = options && options->intra_op_threads > 0
             ? options->intra_op_threads
             : 2;
@@ -457,8 +461,6 @@ pitchee_status_t analyze_pcm_impl(
             sample_rate,
             pitchee::kSampleRate
         );
-        const double source_seconds =
-            static_cast<double>(signal.size()) / pitchee::kSampleRate;
         if (std::isfinite(pitchee::kMaximumSeconds)) {
             const size_t maximum_samples = static_cast<size_t>(
                 pitchee::kMaximumSeconds * pitchee::kSampleRate
@@ -466,6 +468,8 @@ pitchee_status_t analyze_pcm_impl(
             if (signal.size() > maximum_samples) signal.resize(maximum_samples);
         }
         if (signal.empty()) throw std::invalid_argument("empty audio");
+        const double source_seconds =
+            static_cast<double>(signal.size()) / pitchee::kSampleRate;
         reporter.progress(PITCHEE_PROGRESS_STAGE_RESAMPLING_AUDIO, 1, 1);
 
         reporter.phase(PITCHEE_PHASE_ANALYZING);
@@ -519,26 +523,26 @@ pitchee_status_t analyze_pcm_impl(
         );
         // Naturalness uses the exact VFP window set on the source timeline.
         const auto& natural_windows = source_windows;
-        std::vector<std::vector<float>> natural_patches;
-        natural_patches.reserve(natural_windows.size());
-        for (const auto& window : natural_windows) {
-            natural_patches.push_back(pitchee::crop_window(signal, window));
-        }
-        const auto natural_embeddings = embed_waveforms(
-            *analyzer->ecapa_frontend,
-            *analyzer->ecapa,
-            natural_patches,
-            reporter,
-            PITCHEE_PROGRESS_STAGE_EXTRACTING_NATURALNESS_EMBEDDINGS
-        );
         reporter.progress(
             PITCHEE_PROGRESS_STAGE_PREPARING_NATURALNESS_WINDOWS,
             1,
             1
         );
+        reporter.progress(
+            PITCHEE_PROGRESS_STAGE_EXTRACTING_NATURALNESS_EMBEDDINGS,
+            0,
+            speech_embeddings.size()
+        );
+        const auto& natural_embeddings = speech_embeddings;
+        reporter.progress(
+            PITCHEE_PROGRESS_STAGE_EXTRACTING_NATURALNESS_EMBEDDINGS,
+            natural_embeddings.size(),
+            natural_embeddings.size()
+        );
         const auto features = naturalness_features(natural_embeddings);
 
         pitchee::AnalysisResult result;
+        result.model_version = analyzer->model_version;
         const double mean_probability = std::accumulate(
             probabilities.begin(),
             probabilities.end(),
@@ -642,6 +646,9 @@ pitchee_status_t analyze_pcm_impl(
         reporter.phase(PITCHEE_PHASE_COMPLETED);
         reporter.progress(PITCHEE_PROGRESS_STAGE_COMPLETED, 1, 1);
         return PITCHEE_SUCCESS;
+    } catch (const std::invalid_argument& error) {
+        set_error(error_message, error_message_capacity, error.what());
+        return PITCHEE_ERROR_INVALID_ARGUMENT;
     } catch (const std::exception& error) {
         set_error(error_message, error_message_capacity, error.what());
         return status_for_exception(error);

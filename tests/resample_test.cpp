@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -40,6 +41,19 @@ int main() {
             std::abs(resampled[index] - expected[index]) <= 1e-6,
             "polyphase sample"
         );
+    }
+
+    const float stereo[] = {0.25f, 0.75f, -0.25f, -0.75f};
+    const auto mono = pitchee::resample_mono(stereo, 4, 2, 16000);
+    require(mono == std::vector<float>({0.5f, -0.5f}), "complete stereo frames");
+    for (const size_t sample_count : {size_t{1}, size_t{3}}) {
+        bool rejected = false;
+        try {
+            pitchee::resample_mono(stereo, sample_count, 2, 16000);
+        } catch (const std::invalid_argument&) {
+            rejected = true;
+        }
+        require(rejected, "partial stereo frames must not be silently discarded");
     }
 
     const auto short_windows = pitchee::native_speech_windows(

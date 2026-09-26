@@ -10,8 +10,8 @@ namespace {
 constexpr int kWindowSize = 512;
 constexpr int kContextSize = 64;
 constexpr int kStateSize = 2 * 128;
-constexpr double kThreshold = 0.30;
-constexpr double kNegativeThreshold = 0.60;
+constexpr double kSpeechStartThreshold = 0.60;
+constexpr double kSpeechEndThreshold = 0.30;
 constexpr double kMinimumPeriodicity = 0.50;
 constexpr double kMinimumVoicedRatio = 0.12;
 constexpr int kPeriodicityFrameSamples = 400;
@@ -132,13 +132,13 @@ VadResult VadDetector::detect(
     for (size_t index = 0; index < probabilities.size(); ++index) {
         const double probability = probabilities[index];
         const int current_sample = static_cast<int>(index) * kWindowSize;
-        if (probability >= kThreshold && temporary_end != 0) temporary_end = 0;
-        if (probability >= kThreshold && !triggered) {
+        if (probability >= kSpeechStartThreshold && temporary_end != 0) temporary_end = 0;
+        if (probability >= kSpeechStartThreshold && !triggered) {
             triggered = true;
             current_start = current_sample;
             continue;
         }
-        if (probability < kNegativeThreshold && triggered) {
+        if (probability < kSpeechEndThreshold && triggered) {
             if (temporary_end == 0) temporary_end = current_sample;
             const int silence_duration = current_sample - temporary_end;
             if (silence_duration < minimum_silence_samples) continue;
