@@ -142,8 +142,10 @@ unzip /tmp/onnxruntime-ios.zip -d third_party/onnxruntime-ios
 ### 6. 运行预测
 
 ```bash
-./build-macos/pitchee_cli ./models /path/to/audio.wav
+./build-macos/pitchee_cli ./models /path/to/audio.wav feminization
 ```
+
+第三个参数必须显式指定 `feminization` 或 `masculinization`。
 
 CLI 支持 PCM16、PCM32 和 Float32 WAV。M4A、MP3、AAC 等压缩格式应通过
 AVFoundation、MediaCodec 或桌面解码器转换成 Float32 PCM。
@@ -179,6 +181,7 @@ int main(void) {
     status = pitchee_analyzer_analyze_wav_file(
         analyzer,
         "/path/to/audio.wav",
+        PITCHEE_SCORE_PROFILE_FEMINIZATION,
         NULL,
         NULL,
         &json,
@@ -231,6 +234,7 @@ void progress_callback(const pitchee_progress_t* progress, void* user_data) {
 status = pitchee_analyzer_analyze_wav_file_with_progress(
     analyzer,
     "/path/to/audio.wav",
+    PITCHEE_SCORE_PROFILE_FEMINIZATION,
     progress_callback,
     NULL,
     &json,
@@ -350,8 +354,9 @@ pitchee_spectrum_destroy(spectrum);
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "model_version": "2026-09",
+  "score_profile": "feminization",
   "audio": {
     "source_sample_rate": 16000,
     "source_channels": 1,
@@ -417,8 +422,9 @@ pitchee_spectrum_destroy(spectrum);
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
-| `schema_version` | 整数 | JSON 数据契约版本。结构不兼容变化时递增。当前为 `2`。 |
+| `schema_version` | 整数 | JSON 数据契约版本。结构不兼容变化时递增。当前为 `3`。 |
 | `model_version` | 字符串 | 模型组合版本。当前为 `2026-09`。模型更新后应同步更新。 |
+| `score_profile` | 字符串 | 当前评分标准，`feminization` 或 `masculinization`。 |
 
 ### `audio`
 
@@ -540,6 +546,7 @@ Core 不对语音段做拼接。长语音段按 1.515 秒窗口和 0.1 秒步长
 
 ```c
 double final_score = pitchee_composite_score_value(
+    PITCHEE_SCORE_PROFILE_FEMINIZATION,
     vfp_standard_score,
     naturalness_score,
     f0_hz
@@ -567,7 +574,7 @@ base_score = 100 × (
 )
 ```
 
-规则按以下顺序判断：
+女性化规则按以下顺序判断：
 
 | `rule` | 条件 | 处理 |
 | --- | --- | --- |
@@ -596,6 +603,23 @@ promoted = 60 + 40 × strength
 
 最终分数始终限制在 `0–100`。只有当 cap 真正降低分数时 `limited` 才为
 `true`；只有及格提升真正提高分数时 `boosted` 才为 `true`。
+
+男性化模式只使用 F0 和 VFP，不读取自然度。定义：
+
+```text
+dF0  = clamp((165 - F0) / 75, -1, 1)
+dVFP = clamp((50 - VFP) / 50, -1, 1)
+
+base_score = final_score = clamp(
+    60 + 25 × dF0 + 15 × dVFP,
+    0,
+    100
+)
+```
+
+因此 `F0 = 165 Hz`、`VFP = 50` 时分数严格为 `60`。没有有效 F0 时
+`dF0 = 0`。男性化模式固定返回 `rule = "continuous"`、`cap = null`、
+`limited = false`、`boosted = false`，且 `base_score = final_score`。
 
 ## 模型目录
 

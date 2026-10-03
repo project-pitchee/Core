@@ -44,6 +44,11 @@ namespace {
 
 constexpr double kF0WindowSeconds = 0.05;
 
+bool valid_score_profile(pitchee_score_profile_t score_profile) {
+    return score_profile == PITCHEE_SCORE_PROFILE_FEMINIZATION
+        || score_profile == PITCHEE_SCORE_PROFILE_MASCULINIZATION;
+}
+
 struct ProgressReporter {
     pitchee_phase_callback_t phase_callback = nullptr;
     void* phase_user_data = nullptr;
@@ -368,7 +373,7 @@ std::vector<float> naturalness_features(
 extern "C" {
 
 const char* pitchee_core_version(void) {
-    return "0.1.0";
+    return "0.2.0";
 }
 
 pitchee_status_t pitchee_analyzer_create(
@@ -439,13 +444,14 @@ pitchee_status_t analyze_pcm_impl(
     size_t sample_count,
     int32_t sample_rate,
     int32_t channels,
+    pitchee_score_profile_t score_profile,
     const ProgressReporter& reporter,
     char** out_json,
     char* error_message,
     size_t error_message_capacity
 ) {
     if (!analyzer || !samples || sample_count == 0 || sample_rate <= 0
-        || channels <= 0 || !out_json) {
+        || channels <= 0 || !valid_score_profile(score_profile) || !out_json) {
         set_error(error_message, error_message_capacity, "invalid PCM argument");
         return PITCHEE_ERROR_INVALID_ARGUMENT;
     }
@@ -543,6 +549,7 @@ pitchee_status_t analyze_pcm_impl(
 
         pitchee::AnalysisResult result;
         result.model_version = analyzer->model_version;
+        result.score_profile = score_profile;
         const double mean_probability = std::accumulate(
             probabilities.begin(),
             probabilities.end(),
@@ -629,6 +636,7 @@ pitchee_status_t analyze_pcm_impl(
         result.f0_windows = pitch.windows;
         result.naturalness_score = analyzer->naturalness->score(features);
         result.score = pitchee::calculate_composite_score(
+            score_profile,
             result.vfp_standard_score,
             result.naturalness_score,
             result.has_f0,
@@ -661,6 +669,7 @@ pitchee_status_t pitchee_analyzer_analyze_pcm(
     size_t sample_count,
     int32_t sample_rate,
     int32_t channels,
+    pitchee_score_profile_t score_profile,
     pitchee_phase_callback_t phase_callback,
     void* user_data,
     char** out_json,
@@ -679,6 +688,7 @@ pitchee_status_t pitchee_analyzer_analyze_pcm(
         sample_count,
         sample_rate,
         channels,
+        score_profile,
         reporter,
         out_json,
         error_message,
@@ -692,6 +702,7 @@ pitchee_status_t pitchee_analyzer_analyze_pcm_with_progress(
     size_t sample_count,
     int32_t sample_rate,
     int32_t channels,
+    pitchee_score_profile_t score_profile,
     pitchee_progress_callback_t progress_callback,
     void* user_data,
     char** out_json,
@@ -710,6 +721,7 @@ pitchee_status_t pitchee_analyzer_analyze_pcm_with_progress(
         sample_count,
         sample_rate,
         channels,
+        score_profile,
         reporter,
         out_json,
         error_message,
@@ -720,12 +732,13 @@ pitchee_status_t pitchee_analyzer_analyze_pcm_with_progress(
 pitchee_status_t analyze_wav_impl(
     pitchee_analyzer_t* analyzer,
     const char* wav_path,
+    pitchee_score_profile_t score_profile,
     const ProgressReporter& reporter,
     char** out_json,
     char* error_message,
     size_t error_message_capacity
 ) {
-    if (!analyzer || !wav_path || !out_json) {
+    if (!analyzer || !wav_path || !valid_score_profile(score_profile) || !out_json) {
         set_error(error_message, error_message_capacity, "invalid WAV argument");
         return PITCHEE_ERROR_INVALID_ARGUMENT;
     }
@@ -739,6 +752,7 @@ pitchee_status_t analyze_wav_impl(
             wav.samples.size(),
             wav.sample_rate,
             wav.channels,
+            score_profile,
             reporter,
             out_json,
             error_message,
@@ -753,6 +767,7 @@ pitchee_status_t analyze_wav_impl(
 pitchee_status_t pitchee_analyzer_analyze_wav_file(
     pitchee_analyzer_t* analyzer,
     const char* wav_path,
+    pitchee_score_profile_t score_profile,
     pitchee_phase_callback_t phase_callback,
     void* user_data,
     char** out_json,
@@ -768,6 +783,7 @@ pitchee_status_t pitchee_analyzer_analyze_wav_file(
     return analyze_wav_impl(
         analyzer,
         wav_path,
+        score_profile,
         reporter,
         out_json,
         error_message,
@@ -778,6 +794,7 @@ pitchee_status_t pitchee_analyzer_analyze_wav_file(
 pitchee_status_t pitchee_analyzer_analyze_wav_file_with_progress(
     pitchee_analyzer_t* analyzer,
     const char* wav_path,
+    pitchee_score_profile_t score_profile,
     pitchee_progress_callback_t progress_callback,
     void* user_data,
     char** out_json,
@@ -793,6 +810,7 @@ pitchee_status_t pitchee_analyzer_analyze_wav_file_with_progress(
     return analyze_wav_impl(
         analyzer,
         wav_path,
+        score_profile,
         reporter,
         out_json,
         error_message,
@@ -935,12 +953,15 @@ void pitchee_realtime_f0_destroy(pitchee_realtime_f0_t* stream) {
 }
 
 double pitchee_composite_score_value(
+    pitchee_score_profile_t score_profile,
     double vfp_standard_score,
     double naturalness_score,
     double f0_hz
 ) {
+    if (!valid_score_profile(score_profile)) return std::numeric_limits<double>::quiet_NaN();
     const bool has_f0 = std::isfinite(f0_hz) && f0_hz > 0.0;
     return pitchee::calculate_composite_score(
+        score_profile,
         vfp_standard_score,
         naturalness_score,
         has_f0,
@@ -949,14 +970,18 @@ double pitchee_composite_score_value(
 }
 
 pitchee_status_t pitchee_composite_score(
+    pitchee_score_profile_t score_profile,
     double vfp_standard_score,
     double naturalness_score,
     double f0_hz,
     int32_t has_f0,
     pitchee_composite_score_t* out_score
 ) {
-    if (!out_score) return PITCHEE_ERROR_INVALID_ARGUMENT;
+    if (!valid_score_profile(score_profile) || !out_score) {
+        return PITCHEE_ERROR_INVALID_ARGUMENT;
+    }
     const auto score = pitchee::calculate_composite_score(
+        score_profile,
         vfp_standard_score,
         naturalness_score,
         has_f0 != 0,

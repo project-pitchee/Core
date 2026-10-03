@@ -52,6 +52,7 @@ int main(int argc, char** argv) {
         (size_t)byte_count / sizeof(float),
         16000,
         1,
+        PITCHEE_SCORE_PROFILE_FEMINIZATION,
         NULL,
         NULL,
         &json,

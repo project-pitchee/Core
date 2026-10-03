@@ -21,6 +21,12 @@ std::string optional_number(bool present, double value) {
     return present ? number(value) : "null";
 }
 
+const char* score_profile_name(int profile) {
+    return profile == 1
+        ? "masculinization"
+        : "feminization";
+}
+
 }  // namespace
 
 std::string model_version_from_directory(const std::filesystem::path& directory) {
@@ -71,6 +77,8 @@ std::string result_to_json(const AnalysisResult& result) {
     output << "\"schema_version\":" << kSchemaVersion << ",";
     output << "\"model_version\":\""
            << escape_json(result.model_version) << "\",";
+    output << "\"score_profile\":\""
+           << score_profile_name(result.score_profile) << "\",";
 
     output << "\"audio\":{";
     output << "\"source_sample_rate\":" << result.source_sample_rate << ",";

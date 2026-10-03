@@ -248,7 +248,7 @@ an app bundle and does not download models automatically.
 
 ```bash
 ctest --test-dir build --output-on-failure
-./build/pitchee_cli ./models /path/to/audio.wav
+./build/pitchee_cli ./models /path/to/audio.wav feminization
 ```
 
 The static C ABI consumer example is in `examples/consumer`.

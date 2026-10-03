@@ -15,7 +15,7 @@ constexpr int kPatchSamples = 24240;
 constexpr int kStrideSamples = 1600;
 constexpr int kEmbeddingBatchSize = 8;
 constexpr int kEmbeddingDimensions = 192;
-constexpr int kSchemaVersion = 2;
+constexpr int kSchemaVersion = 3;
 // An infinite limit disables input truncation in the analyzer.
 constexpr double kMaximumSeconds = std::numeric_limits<double>::infinity();
 
@@ -71,6 +71,7 @@ struct SampleWindow {
 
 struct AnalysisResult {
     std::string model_version = "unknown";
+    int score_profile = 0;
     double vfp_standard_score = 0.0;
     int window_count = 0;
     std::vector<VfpWindow> vfp_windows;
@@ -121,6 +122,7 @@ private:
 };
 
 CompositeScore calculate_composite_score(
+    int score_profile,
     double vfp_standard_score,
     double naturalness_score,
     bool has_f0,

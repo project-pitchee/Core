@@ -1,5 +1,6 @@
 #include "pitchee/pitchee.h"
 
+#include <cstring>
 #include <cstdio>
 #include <cinttypes>
 #include <exception>
@@ -23,8 +24,19 @@ void progress_callback(const pitchee_progress_t* progress, void*) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 3) {
-        std::cerr << "usage: pitchee_cli <model-directory> <audio.wav>\n";
+    if (argc != 4) {
+        std::cerr << "usage: pitchee_cli <model-directory> <audio.wav> "
+                     "<feminization|masculinization>\n";
+        return 2;
+    }
+
+    pitchee_score_profile_t score_profile;
+    if (std::strcmp(argv[3], "feminization") == 0) {
+        score_profile = PITCHEE_SCORE_PROFILE_FEMINIZATION;
+    } else if (std::strcmp(argv[3], "masculinization") == 0) {
+        score_profile = PITCHEE_SCORE_PROFILE_MASCULINIZATION;
+    } else {
+        std::cerr << "invalid score profile: " << argv[3] << "\n";
         return 2;
     }
 
@@ -49,6 +61,7 @@ int main(int argc, char** argv) {
     status = pitchee_analyzer_analyze_wav_file_with_progress(
         analyzer,
         argv[2],
+        score_profile,
         progress_callback,
         nullptr,
         &json,

@@ -2,12 +2,24 @@ package space.pitchee.core
 
 import java.io.Closeable
 
+enum class ScoreProfile(val value: Int) {
+    FEMINIZATION(0),
+    MASCULINIZATION(1),
+}
+
 class PitcheeAnalyzer private constructor(private var nativeHandle: Long) : Closeable {
     fun analyze(
         samples: FloatArray,
         sampleRate: Int,
-        channels: Int
-    ): String = nativeAnalyze(nativeHandle, samples, sampleRate, channels)
+        channels: Int,
+        scoreProfile: ScoreProfile,
+    ): String = nativeAnalyze(
+        nativeHandle,
+        samples,
+        sampleRate,
+        channels,
+        scoreProfile.value,
+    )
 
     override fun close() {
         if (nativeHandle != 0L) {
@@ -21,7 +33,8 @@ class PitcheeAnalyzer private constructor(private var nativeHandle: Long) : Clos
         handle: Long,
         samples: FloatArray,
         sampleRate: Int,
-        channels: Int
+        channels: Int,
+        scoreProfile: Int,
     ): String
 
     companion object {

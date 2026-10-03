@@ -37,6 +37,12 @@ typedef enum pitchee_status_t {
     PITCHEE_ERROR_INTERNAL = 7
 } pitchee_status_t;
 
+/* Required by every analysis and composite-score call. */
+typedef enum pitchee_score_profile_t {
+    PITCHEE_SCORE_PROFILE_FEMINIZATION = 0,
+    PITCHEE_SCORE_PROFILE_MASCULINIZATION = 1
+} pitchee_score_profile_t;
+
 typedef enum pitchee_analysis_phase_t {
     PITCHEE_PHASE_PREPARING_MODELS = 0,
     PITCHEE_PHASE_LOADING_AUDIO = 1,
@@ -172,6 +178,7 @@ PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_pcm(
     size_t sample_count,
     int32_t sample_rate,
     int32_t channels,
+    pitchee_score_profile_t score_profile,
     pitchee_phase_callback_t phase_callback,
     void* user_data,
     char** out_json,
@@ -185,6 +192,7 @@ PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_pcm_with_progress(
     size_t sample_count,
     int32_t sample_rate,
     int32_t channels,
+    pitchee_score_profile_t score_profile,
     pitchee_progress_callback_t progress_callback,
     void* user_data,
     char** out_json,
@@ -195,6 +203,7 @@ PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_pcm_with_progress(
 PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_wav_file(
     pitchee_analyzer_t* analyzer,
     const char* wav_path,
+    pitchee_score_profile_t score_profile,
     pitchee_phase_callback_t phase_callback,
     void* user_data,
     char** out_json,
@@ -205,6 +214,7 @@ PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_wav_file(
 PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_wav_file_with_progress(
     pitchee_analyzer_t* analyzer,
     const char* wav_path,
+    pitchee_score_profile_t score_profile,
     pitchee_progress_callback_t progress_callback,
     void* user_data,
     char** out_json,
@@ -258,6 +268,7 @@ PITCHEE_API void pitchee_spectrum_reset(pitchee_spectrum_t* spectrum);
 PITCHEE_API void pitchee_spectrum_destroy(pitchee_spectrum_t* spectrum);
 
 PITCHEE_API pitchee_status_t pitchee_composite_score(
+    pitchee_score_profile_t score_profile,
     double vfp_standard_score,
     double naturalness_score,
     double f0_hz,
@@ -270,6 +281,7 @@ PITCHEE_API pitchee_status_t pitchee_composite_score(
  * f0_hz when no valid F0 is available. The returned value is clamped to 0-100.
  */
 PITCHEE_API double pitchee_composite_score_value(
+    pitchee_score_profile_t score_profile,
     double vfp_standard_score,
     double naturalness_score,
     double f0_hz

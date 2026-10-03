@@ -59,7 +59,8 @@ Java_space_pitchee_core_PitcheeAnalyzer_nativeAnalyze(
     jlong handle_value,
     jfloatArray samples,
     jint sample_rate,
-    jint channels
+    jint channels,
+    jint score_profile
 ) {
     auto* analyzer = reinterpret_cast<pitchee_analyzer_t*>(handle_value);
     const jsize count = env->GetArrayLength(samples);
@@ -73,6 +74,7 @@ Java_space_pitchee_core_PitcheeAnalyzer_nativeAnalyze(
         pcm.size(),
         sample_rate,
         channels,
+        static_cast<pitchee_score_profile_t>(score_profile),
         nullptr,
         nullptr,
         &json,

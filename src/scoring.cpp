@@ -1,11 +1,15 @@
 #include "internal.hpp"
 
+#include "pitchee/pitchee.h"
+
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 
 namespace pitchee {
 
 CompositeScore calculate_composite_score(
+    int score_profile,
     double vfp_standard_score,
     double naturalness_score,
     bool has_f0,
@@ -17,6 +21,26 @@ CompositeScore calculate_composite_score(
     );
     const double naturalness = std::max(0.0, std::min(100.0, naturalness_score));
     CompositeScore output;
+    if (score_profile == PITCHEE_SCORE_PROFILE_MASCULINIZATION) {
+        const double vfp_deviation = std::max(
+            -1.0,
+            std::min(1.0, (50.0 - standard) / 50.0)
+        );
+        const double f0_deviation = has_f0 && f0_hz > 0.0
+            ? std::max(-1.0, std::min(1.0, (165.0 - f0_hz) / 75.0))
+            : 0.0;
+        const double score = std::max(
+            0.0,
+            std::min(100.0, 60.0 + 25.0 * f0_deviation + 15.0 * vfp_deviation)
+        );
+        output.base_score = score;
+        output.final_score = score;
+        output.score_rule = "continuous";
+        return output;
+    }
+    if (score_profile != PITCHEE_SCORE_PROFILE_FEMINIZATION) {
+        throw std::invalid_argument("invalid score profile");
+    }
     if (!has_f0 || f0_hz <= 0.0) {
         output.base_score = standard;
         output.final_score = standard;

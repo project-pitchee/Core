@@ -57,9 +57,11 @@ int main() {
     result.f0_windows.push_back({0.1, 0.2, true, 180.0});
 
     const std::string json = pitchee::result_to_json(result);
-    require(contains(json, "\"schema_version\":2"), "schema version");
+    require(contains(json, "\"schema_version\":3"), "schema version");
     require(contains(json, "\"model_version\":\"test-2.3+local\""),
             "result version must come from the selected model directory");
+    require(contains(json, "\"score_profile\":\"feminization\""),
+            "score profile");
     require(!contains(json, "\"models\""), "models removed");
     require(!contains(json, "raw_female_score"), "raw score removed");
     require(contains(json, "\"f0\":{\"window_seconds\":0.05"), "f0 section");
@@ -80,6 +82,10 @@ int main() {
     require(contains(pitchee::result_to_json(result),
                      "\"model_version\":\"test\\\"\\\\\\n\""),
             "model version must be JSON escaped");
+    result.score_profile = 1;
+    require(contains(pitchee::result_to_json(result),
+                     "\"score_profile\":\"masculinization\""),
+            "masculinization score profile");
     std::cout << "PitcheeCore JSON test passed\n";
     return 0;
 }

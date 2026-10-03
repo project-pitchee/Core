@@ -27,6 +27,10 @@ worker.
 
 Destroy it with `pitchee_analyzer_destroy(analyzer)`.
 
+Every analysis call must explicitly pass either
+`PITCHEE_SCORE_PROFILE_FEMINIZATION` or
+`PITCHEE_SCORE_PROFILE_MASCULINIZATION`.
+
 ## Raw PCM input
 
 ```c
@@ -37,6 +41,7 @@ status = pitchee_analyzer_analyze_pcm(
     sample_count,
     sample_rate,
     channels,
+    PITCHEE_SCORE_PROFILE_FEMINIZATION,
     phase_callback,
     user_data,
     &json,
@@ -71,6 +76,7 @@ status = pitchee_analyzer_analyze_pcm_with_progress(
     sample_count,
     sample_rate,
     channels,
+    PITCHEE_SCORE_PROFILE_FEMINIZATION,
     on_progress,
     user_data,
     &json,
@@ -177,6 +183,7 @@ or dBFS.
 status = pitchee_analyzer_analyze_wav_file(
     analyzer,
     wav_path,
+    PITCHEE_SCORE_PROFILE_FEMINIZATION,
     phase_callback,
     user_data,
     &json,
@@ -195,8 +202,9 @@ The result is deliberately data-only:
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "model_version": "2026-09",
+  "score_profile": "feminization",
   "audio": {
     "source_sample_rate": 48000,
     "source_channels": 1,
@@ -254,6 +262,7 @@ concept in the result.
 ```c
 pitchee_composite_score_t score;
 pitchee_composite_score(
+    PITCHEE_SCORE_PROFILE_FEMINIZATION,
     vfp_standard_score,
     naturalness_score,
     f0_hz,
@@ -269,6 +278,7 @@ function:
 
 ```c
 double final_score = pitchee_composite_score_value(
+    PITCHEE_SCORE_PROFILE_FEMINIZATION,
     vfp_standard_score,
     naturalness_score,
     f0_hz

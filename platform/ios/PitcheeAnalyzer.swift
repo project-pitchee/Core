@@ -39,7 +39,8 @@ public final class PitcheeAnalyzer {
     public func analyze(
         samples: [Float],
         sampleRate: Int32,
-        channels: Int32
+        channels: Int32,
+        scoreProfile: pitchee_score_profile_t
     ) throws -> String {
         lock.lock()
         defer { lock.unlock() }
@@ -56,6 +57,7 @@ public final class PitcheeAnalyzer {
                 buffer.count,
                 sampleRate,
                 channels,
+                scoreProfile,
                 nil,
                 nil,
                 &output,

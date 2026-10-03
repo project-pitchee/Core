@@ -4,7 +4,14 @@
 
 int main(void) {
     pitchee_composite_score_t score;
-    if (pitchee_composite_score(90.0, 100.0, 200.0, 1, &score)
+    if (pitchee_composite_score(
+            PITCHEE_SCORE_PROFILE_FEMINIZATION,
+            90.0,
+            100.0,
+            200.0,
+            1,
+            &score
+        )
         != PITCHEE_SUCCESS) {
         return 1;
     }
