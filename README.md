@@ -302,6 +302,98 @@ SwiftF0 每帧时间步长是 256 samples。Core 使用重叠上下文维持低�
 同一个实时流必须串行调用；不同流可以使用不同 analyzer。analyzer 的生命周期
 必须长于其创建的实时流。
 
+### 实时固定元音共鸣
+
+实时共鸣流在内部串联 SwiftF0 和 FormantNet。调用方必须传入本次要分析的 IPA
+元音，Core 不包含也不需要音素识别模型。
+
+推荐 IPA 字符串：
+
+```text
+"i"
+"u"
+"æ"
+"ɑ"
+```
+
+为兼容已有代码，也接受 `"ae"`、`"a"`、`"A"`。
+
+```c
+pitchee_realtime_resonance_t* resonance_stream = NULL;
+pitchee_realtime_resonance_options_t resonance_options = {
+    5120,       /* SwiftF0 context: 320 ms */
+    256,        /* SwiftF0 hop: 16 ms */
+    "æ",        /* fixed IPA vowel */
+    3200,       /* FormantNet causal window: 200 ms */
+    0
+};
+
+pitchee_status_t status = pitchee_realtime_resonance_create(
+    analyzer,
+    &resonance_options,
+    &resonance_stream,
+    error,
+    sizeof(error)
+);
+if (status != PITCHEE_SUCCESS) {
+    fprintf(stderr, "%s\n", error);
+}
+
+void resonance_callback(
+    const pitchee_resonance_frame_t* frame,
+    void* user_data
+) {
+    if (!frame->voiced) return;
+
+    printf(
+        "t=%.3f f0=%.2f conf=%.3f "
+        "F1=%.1f F2=%.1f F3=%.1f F4=%.1f score=%.2f vowel=%s\n",
+        frame->timestamp_seconds,
+        frame->f0_hz,
+        frame->f0_confidence,
+        frame->f1_hz,
+        frame->f2_hz,
+        frame->f3_hz,
+        frame->f4_hz,
+        frame->resonance_score,
+        frame->vowel
+    );
+    (void)user_data;
+}
+
+/* samples 必须是任意长度的 16 kHz mono Float32 PCM。 */
+size_t emitted = 0;
+status = pitchee_realtime_resonance_process(
+    resonance_stream,
+    samples,
+    sample_count,
+    resonance_callback,
+    NULL,
+    &emitted,
+    error,
+    sizeof(error)
+);
+
+/* 开始下一段录音时清空缓冲。 */
+pitchee_realtime_resonance_reset(resonance_stream);
+
+/* 录音结束时释放。 */
+pitchee_realtime_resonance_destroy(resonance_stream);
+```
+
+回调字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `timestamp_seconds` | SwiftF0 帧在输入音频中的时间戳 |
+| `f0_hz`、`f0_confidence` | SwiftF0 基频及置信度 |
+| `f1_hz`–`f4_hz` | FormantNet 预测的前四个共振峰 |
+| `resonance_score` | 指定 IPA 元音对应的 0–100 校准共鸣分 |
+| `vowel` | 调用 `create` 时传入的 IPA 字符串 |
+
+FormantNet 使用当前 SwiftF0 帧之前 200 ms 的纯因果窗口，不读取未来音频。
+同一个 resonance stream 不能并发调用；analyzer 必须比 stream 活得久。
+
 ### Spectrum 频谱
 
 Spectrum 是完全独立的接口，不需要 ONNX Runtime，也不需要 analyzer：
