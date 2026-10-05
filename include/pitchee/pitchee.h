@@ -105,17 +105,10 @@ typedef void (*pitchee_f0_frame_callback_t)(
     void* user_data
 );
 
-typedef enum pitchee_corner_vowel_t {
-    PITCHEE_CORNER_VOWEL_I = 0,
-    PITCHEE_CORNER_VOWEL_U = 1,
-    PITCHEE_CORNER_VOWEL_AE = 2,
-    PITCHEE_CORNER_VOWEL_A = 3
-} pitchee_corner_vowel_t;
-
 typedef struct pitchee_realtime_resonance_options_t {
     int32_t context_samples;
     int32_t hop_samples;
-    pitchee_corner_vowel_t vowel;
+    const char* vowel;
     int32_t formant_window_samples;
     int32_t reserved;
 } pitchee_realtime_resonance_options_t;
@@ -129,7 +122,7 @@ typedef struct pitchee_resonance_frame_t {
     float f3_hz;
     float f4_hz;
     float resonance_score;
-    pitchee_corner_vowel_t vowel;
+    const char* vowel;
     int32_t voiced;
 } pitchee_resonance_frame_t;
 

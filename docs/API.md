@@ -151,7 +151,7 @@ fixed corner vowel; there is no phoneme-recognition model in Core.
 pitchee_realtime_resonance_options_t options = {
     5120,
     256,
-    PITCHEE_CORNER_VOWEL_AE,
+    "\xC3\xA6",
     3200,
     0
 };
@@ -166,7 +166,8 @@ pitchee_realtime_resonance_create(
 );
 ```
 
-Accepted vowels are `PITCHEE_CORNER_VOWEL_I`, `U`, `AE`, and `A`.
+The recommended IPA strings are `"i"`, `"u"`, `"æ"`, and `"ɑ"`. ASCII aliases
+`"ae"`, `"a"`, and `"A"` are accepted for compatibility.
 `pitchee_realtime_resonance_process()` accepts any number of 16 kHz mono
 Float32 samples. For each voiced SwiftF0 frame it measures F1-F4 from the
 preceding formant window and invokes:

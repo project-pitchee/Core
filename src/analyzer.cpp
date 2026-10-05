@@ -45,7 +45,8 @@ struct pitchee_realtime_f0_t {
 struct pitchee_realtime_resonance_t {
     pitchee_realtime_f0_t* f0_stream = nullptr;
     std::unique_ptr<pitchee::OrtModel> formant_model;
-    pitchee_corner_vowel_t vowel = PITCHEE_CORNER_VOWEL_A;
+    std::string vowel;
+    int vowel_index = 3;
     size_t formant_window_samples = 3200;
     size_t context_samples = 5120;
     size_t buffer_start_sample = 0;
@@ -440,11 +441,21 @@ constexpr std::array<ResonanceReference, 4> kResonanceReferences{{
      {{0.32187276609775717, 0.28767021980082047, 0.19948711527053295, 0.19096989883088925}}},
 }};
 
+bool parse_resonance_vowel(const std::string& vowel, int* index) {
+    if (!index) return false;
+    if (vowel == "i") *index = 0;
+    else if (vowel == "u") *index = 1;
+    else if (vowel == "\xC3\xA6" || vowel == "ae") *index = 2;
+    else if (vowel == "\xC9\x91" || vowel == "a" || vowel == "A") *index = 3;
+    else return false;
+    return true;
+}
+
 float resonance_score(
-    pitchee_corner_vowel_t vowel,
+    int vowel_index,
     const std::array<float, 4>& formants_hz
 ) {
-    const auto index = static_cast<size_t>(vowel);
+    const auto index = static_cast<size_t>(vowel_index);
     if (index >= kResonanceReferences.size()) return -1.0f;
     const auto& reference = kResonanceReferences[index];
     double position = 0.0;
@@ -502,8 +513,8 @@ void realtime_resonance_f0_callback(
         output.f2_hz = formants[1];
         output.f3_hz = formants[2];
         output.f4_hz = formants[3];
-        output.resonance_score = resonance_score(stream.vowel, formants);
-        output.vowel = stream.vowel;
+        output.resonance_score = resonance_score(stream.vowel_index, formants);
+        output.vowel = stream.vowel.c_str();
         output.voiced = 1;
         ++stream.emitted_frames;
         stream.frame_callback(&output, stream.user_data);
@@ -1283,9 +1294,14 @@ pitchee_status_t pitchee_realtime_resonance_create(
         return PITCHEE_ERROR_INVALID_ARGUMENT;
     }
     *out_stream = nullptr;
-    const int vowel_value = static_cast<int>(options->vowel);
-    if (vowel_value < 0 || vowel_value > 3) {
+    if (!options->vowel) {
         set_error(error_message, error_message_capacity, "invalid corner vowel");
+        return PITCHEE_ERROR_INVALID_ARGUMENT;
+    }
+    const std::string vowel(options->vowel);
+    int vowel_index = 0;
+    if (!parse_resonance_vowel(vowel, &vowel_index)) {
+        set_error(error_message, error_message_capacity, "unsupported corner vowel");
         return PITCHEE_ERROR_INVALID_ARGUMENT;
     }
     const size_t context_samples = options->context_samples > 0
@@ -1318,7 +1334,8 @@ pitchee_status_t pitchee_realtime_resonance_create(
             analyzer->intra_op_threads,
             false
         );
-        stream->vowel = options->vowel;
+        stream->vowel = vowel;
+        stream->vowel_index = vowel_index;
         stream->formant_window_samples = formant_window_samples;
         stream->context_samples = context_samples;
         *out_stream = stream.release();

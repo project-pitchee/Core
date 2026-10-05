@@ -56,7 +56,7 @@ int main(int argc, char** argv) {
     pitchee_realtime_resonance_options_t options{
         5120,
         256,
-        PITCHEE_CORNER_VOWEL_AE,
+        "\xC3\xA6",
         3200,
         0,
     };
