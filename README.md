@@ -18,6 +18,7 @@ PitcheeCore 是一个独立、跨平台的 C++17 语音预测库。输入一段�
 - VFP 语音顺性别女性概率分析
 - Naturalness 语音自然度分析
 - SwiftF0 基频分析
+- 固定元音实时共鸣分析（SwiftF0 + FormantNet）
 - 自定义综合分计算方法
 - UTF-8 JSON 数据输出
 
@@ -630,6 +631,7 @@ models/
   ECAPA.onnx
   VFPHead.onnx
   SwiftF0.onnx
+  FormantNet.onnx
   Naturalness.onnx
   manifest.json
 ```
@@ -637,7 +639,7 @@ models/
 调用 `pitchee_analyzer_create(model_directory, ...)` 时，目录中必须存在这些
 文件。模型只加载一次，Core 不需要网络，也不会自动下载模型。
 
-`VFPHead.onnx`、`Naturalness.onnx` 和官方 `SwiftF0.onnx` 均使用未压缩的
+`VFPHead.onnx`、`Naturalness.onnx`、`FormantNet.onnx` 和官方 `SwiftF0.onnx` 均使用未压缩的
 FP32 权重。`ECAPA.onnx` 当前仍为 FP16 权重，用于控制移动端包体和内存占用。
 `ECAPAFrontend.onnx` 和 `ECAPA.onnx` 的时间维是动态的，因此 VAD 短语音段
 可以按原长度直接推理，不需要补齐到 1.515 秒。
@@ -687,6 +689,12 @@ FP32 权重。`ECAPA.onnx` 当前仍为 FP16 权重，用于控制移动端包�
 ```
 
 项目地址：<https://github.com/lars76/swift-f0>
+
+### FormantNet
+
+实时共鸣分析使用 FormantNet ONNX 预测 F1-F4：
+
+<https://github.com/NemoursResearch/FormantNet>
 
 ### ECAPA-TDNN
 
@@ -743,6 +751,7 @@ ONNX Runtime 用于所有平台的模型执行：
 | 组件 | 许可证 |
 | --- | --- |
 | SwiftF0 模型与算法 | MIT，许可证位于 `models/SWIFT_F0_LICENSE` |
+| FormantNet 模型与算法 | MIT，许可证位于 `models/FORMANTNET_LICENSE` |
 | Silero VAD | MIT |
 | SpeechBrain | Apache License 2.0 |
 | ONNX Runtime | MIT |

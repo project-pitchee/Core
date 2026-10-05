@@ -142,6 +142,56 @@ The first callback occurs after the full context is available. Call
 `pitchee_realtime_f0_reset()` when starting a new recording without recreating
 the stream. The analyzer must outlive every stream created from it.
 
+## Realtime resonance
+
+Realtime resonance combines SwiftF0 with FormantNet. The caller must provide a
+fixed corner vowel; there is no phoneme-recognition model in Core.
+
+```c
+pitchee_realtime_resonance_options_t options = {
+    5120,
+    256,
+    PITCHEE_CORNER_VOWEL_AE,
+    3200,
+    0
+};
+pitchee_realtime_resonance_t* stream = NULL;
+
+pitchee_realtime_resonance_create(
+    analyzer,
+    &options,
+    &stream,
+    error,
+    sizeof(error)
+);
+```
+
+Accepted vowels are `PITCHEE_CORNER_VOWEL_I`, `U`, `AE`, and `A`.
+`pitchee_realtime_resonance_process()` accepts any number of 16 kHz mono
+Float32 samples. For each voiced SwiftF0 frame it measures F1-F4 from the
+preceding formant window and invokes:
+
+```c
+void on_resonance_frame(
+    const pitchee_resonance_frame_t* frame,
+    void* user_data
+);
+```
+
+The callback contains:
+
+| Field | Meaning |
+| --- | --- |
+| `timestamp_seconds` | Monotonic SwiftF0 frame timestamp. |
+| `f0_hz`, `f0_confidence` | SwiftF0 estimate and confidence. |
+| `f1_hz` ... `f4_hz` | FormantNet formant estimates. |
+| `resonance_score` | Calibrated 0-100 score for the fixed vowel. |
+| `vowel` | The caller-supplied corner vowel. |
+
+Call `pitchee_realtime_resonance_reset()` between recordings and
+`pitchee_realtime_resonance_destroy()` when finished. The analyzer must outlive
+the stream.
+
 ## Spectrum
 
 Spectrum is independent of model loading and ONNX Runtime:

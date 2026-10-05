@@ -73,6 +73,29 @@ int main(void) {
         fprintf(stderr, "unexpected realtime F0 process status\n");
         return 1;
     }
+    if (pitchee_realtime_resonance_create(
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            0
+        ) != PITCHEE_ERROR_INVALID_ARGUMENT) {
+        fprintf(stderr, "unexpected realtime resonance create status\n");
+        return 1;
+    }
+    if (pitchee_realtime_resonance_process(
+            NULL,
+            NULL,
+            0,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            0
+        ) != PITCHEE_ERROR_INVALID_ARGUMENT) {
+        fprintf(stderr, "unexpected realtime resonance process status\n");
+        return 1;
+    }
     if (pitchee_spectrum_create(
             NULL,
             NULL,

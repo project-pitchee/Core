@@ -6,7 +6,9 @@
 #include "pitchee/pitchee.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <complex>
 #include <cstring>
 #include <filesystem>
 #include <map>
@@ -38,6 +40,21 @@ struct pitchee_realtime_f0_t {
     bool has_emitted = false;
     int64_t last_emitted_center_sample = -1;
     std::vector<float> buffer;
+};
+
+struct pitchee_realtime_resonance_t {
+    pitchee_realtime_f0_t* f0_stream = nullptr;
+    std::unique_ptr<pitchee::OrtModel> formant_model;
+    pitchee_corner_vowel_t vowel = PITCHEE_CORNER_VOWEL_A;
+    size_t formant_window_samples = 3200;
+    size_t context_samples = 5120;
+    size_t buffer_start_sample = 0;
+    size_t total_samples = 0;
+    size_t emitted_frames = 0;
+    std::vector<float> buffer;
+    std::string callback_error;
+    pitchee_resonance_frame_callback_t frame_callback = nullptr;
+    void* user_data = nullptr;
 };
 
 namespace {
@@ -195,6 +212,304 @@ pitchee::PitchResult analyze_pitch(
     }
     reporter.progress(PITCHEE_PROGRESS_STAGE_ANALYZING_F0, 1, 1);
     return result;
+}
+
+constexpr int kFormantWindowSamples = 512;
+constexpr int kFormantHopSamples = 80;
+constexpr int kFormantBins = 257;
+constexpr float kFormantPreemphasis = 0.98f;
+constexpr float kFormantFloor = 0.001f;
+
+void fft_radix2(std::vector<std::complex<double>>& values) {
+    const size_t size = values.size();
+    for (size_t index = 1, reversed = 0; index < size; ++index) {
+        size_t bit = size >> 1;
+        for (; reversed & bit; bit >>= 1) reversed ^= bit;
+        reversed ^= bit;
+        if (index < reversed) std::swap(values[index], values[reversed]);
+    }
+    constexpr double kPi = 3.14159265358979323846;
+    for (size_t length = 2; length <= size; length <<= 1) {
+        const double angle = -2.0 * kPi / static_cast<double>(length);
+        const std::complex<double> step(std::cos(angle), std::sin(angle));
+        for (size_t start = 0; start < size; start += length) {
+            std::complex<double> phase(1.0, 0.0);
+            const size_t half = length >> 1;
+            for (size_t offset = 0; offset < half; ++offset) {
+                const size_t even = start + offset;
+                const size_t odd = even + half;
+                const std::complex<double> product = values[odd] * phase;
+                values[odd] = values[even] - product;
+                values[even] += product;
+                phase *= step;
+            }
+        }
+    }
+}
+
+void smooth_formant_envelope(std::vector<float>& values) {
+    for (int pass = 0; pass < 6; ++pass) {
+        for (size_t index = 1; index + 1 < values.size(); ++index) {
+            if (values[index] < values[index - 1]
+                && values[index] < values[index + 1]) {
+                values[index] = 0.5f * (values[index - 1] + values[index + 1]);
+            }
+        }
+        for (size_t index = 1; index + 1 < values.size(); ++index) {
+            if (values[index] <= values[index - 1]
+                || values[index] <= values[index + 1]) {
+                values[index] = 0.25f * values[index - 1]
+                    + 0.5f * values[index]
+                    + 0.25f * values[index + 1];
+            }
+        }
+    }
+}
+
+std::array<float, 4> formantnet_predict(
+    pitchee::OrtModel& model,
+    const std::vector<float>& samples
+) {
+    if (samples.empty()) throw std::runtime_error("empty FormantNet input");
+    std::vector<float> audio = samples;
+    if (audio.size() < kFormantWindowSamples) {
+        audio.insert(audio.begin(), kFormantWindowSamples - audio.size(), 0.0f);
+    }
+    std::vector<float> preemphasized = audio;
+    for (size_t index = 1; index < preemphasized.size(); ++index) {
+        preemphasized[index] -= kFormantPreemphasis * audio[index - 1];
+    }
+    std::vector<float> padded(
+        kFormantWindowSamples / 2 + preemphasized.size() + kFormantHopSamples - 1,
+        0.0f
+    );
+    std::copy(
+        preemphasized.begin(),
+        preemphasized.end(),
+        padded.begin() + kFormantWindowSamples / 2
+    );
+    const size_t frame_count = padded.size() >= kFormantWindowSamples
+        ? (padded.size() - kFormantWindowSamples) / kFormantHopSamples + 1
+        : 0;
+    if (frame_count == 0) throw std::runtime_error("FormantNet has no frames");
+
+    std::vector<float> envelope(frame_count * kFormantBins, 0.0f);
+    std::vector<double> window(kFormantWindowSamples, 0.0);
+    double window_sum = 0.0;
+    constexpr double kPi = 3.14159265358979323846;
+    for (int index = 0; index < kFormantWindowSamples; ++index) {
+        window[static_cast<size_t>(index)] = 0.5 - 0.5 * std::cos(
+            2.0 * kPi * index / static_cast<double>(kFormantWindowSamples - 1)
+        );
+        window_sum += window[static_cast<size_t>(index)];
+    }
+    const float scaling = static_cast<float>(2.0 / window_sum);
+    std::vector<std::complex<double>> fft(kFormantWindowSamples);
+    std::vector<float> frame_values(kFormantBins);
+    for (size_t frame = 0; frame < frame_count; ++frame) {
+        const size_t start = frame * kFormantHopSamples;
+        for (int index = 0; index < kFormantWindowSamples; ++index) {
+            fft[static_cast<size_t>(index)] = std::complex<double>(
+                padded[start + static_cast<size_t>(index)]
+                    * window[static_cast<size_t>(index)],
+                0.0
+            );
+        }
+        fft_radix2(fft);
+        for (int bin = 0; bin < kFormantBins; ++bin) {
+            frame_values[static_cast<size_t>(bin)] = static_cast<float>(
+                std::abs(fft[static_cast<size_t>(bin)])
+            );
+        }
+        smooth_formant_envelope(frame_values);
+        for (int bin = 0; bin < kFormantBins; ++bin) {
+            envelope[frame * kFormantBins + static_cast<size_t>(bin)] =
+                20.0f * std::log10(
+                    scaling * frame_values[static_cast<size_t>(bin)] + kFormantFloor
+                );
+        }
+    }
+    const double mean = std::accumulate(
+        envelope.begin(),
+        envelope.end(),
+        0.0
+    ) / envelope.size();
+    double variance = 0.0;
+    for (const float value : envelope) {
+        const double delta = value - mean;
+        variance += delta * delta;
+    }
+    const double standard_deviation = std::sqrt(variance / envelope.size());
+    for (float& value : envelope) {
+        value = static_cast<float>(
+            (value - mean) / std::max(standard_deviation, 1e-6)
+        );
+    }
+
+    pitchee::Tensor input;
+    input.shape = {
+        1,
+        static_cast<int64_t>(frame_count),
+        kFormantBins,
+    };
+    input.values = std::move(envelope);
+    const auto output = model.run({{"input", std::move(input)}});
+    if (output.values.size() < frame_count * 20) {
+        throw std::runtime_error("FormantNet returned invalid output");
+    }
+
+    std::array<int, 6> order{};
+    std::array<double, 6> mean_frequency{};
+    for (int pole = 0; pole < 6; ++pole) {
+        order[static_cast<size_t>(pole)] = pole;
+        double sum = 0.0;
+        for (size_t frame = 0; frame < frame_count; ++frame) {
+            sum += output.values[frame * 20 + static_cast<size_t>(pole)];
+        }
+        mean_frequency[static_cast<size_t>(pole)] = sum / frame_count;
+    }
+    std::sort(
+        order.begin(),
+        order.end(),
+        [&](int left, int right) {
+            return mean_frequency[static_cast<size_t>(left)]
+                < mean_frequency[static_cast<size_t>(right)];
+        }
+    );
+    std::vector<double> frequencies(frame_count * 6, 0.0);
+    for (size_t frame = 0; frame < frame_count; ++frame) {
+        for (int pole = 0; pole < 6; ++pole) {
+            const int source = order[static_cast<size_t>(pole)];
+            frequencies[frame * 6 + static_cast<size_t>(pole)] =
+                output.values[frame * 20 + static_cast<size_t>(source)] * 8000.0;
+        }
+    }
+    for (int pass = 0; pass < 10; ++pass) {
+        std::vector<double> smoothed = frequencies;
+        if (frame_count > 1) {
+            for (int pole = 0; pole < 6; ++pole) {
+                smoothed[static_cast<size_t>(pole)] =
+                    0.75 * frequencies[static_cast<size_t>(pole)]
+                    + 0.25 * frequencies[6 + static_cast<size_t>(pole)];
+                smoothed[(frame_count - 1) * 6 + static_cast<size_t>(pole)] =
+                    0.75 * frequencies[(frame_count - 1) * 6 + static_cast<size_t>(pole)]
+                    + 0.25 * frequencies[(frame_count - 2) * 6 + static_cast<size_t>(pole)];
+            }
+        }
+        for (size_t frame = 1; frame + 1 < frame_count; ++frame) {
+            for (int pole = 0; pole < 6; ++pole) {
+                smoothed[frame * 6 + static_cast<size_t>(pole)] =
+                    0.5 * frequencies[frame * 6 + static_cast<size_t>(pole)]
+                    + 0.25 * frequencies[(frame - 1) * 6 + static_cast<size_t>(pole)]
+                    + 0.25 * frequencies[(frame + 1) * 6 + static_cast<size_t>(pole)];
+            }
+        }
+        frequencies.swap(smoothed);
+    }
+
+    std::array<float, 4> result{};
+    const size_t average_frames = std::min<size_t>(5, frame_count);
+    for (int pole = 0; pole < 4; ++pole) {
+        double sum = 0.0;
+        for (size_t frame = frame_count - average_frames; frame < frame_count; ++frame) {
+            sum += frequencies[frame * 6 + static_cast<size_t>(pole)];
+        }
+        result[static_cast<size_t>(pole)] = static_cast<float>(sum / average_frames);
+    }
+    return result;
+}
+
+struct ResonanceReference {
+    std::array<double, 4> male_median_log;
+    std::array<double, 4> female_median_log;
+    std::array<double, 4> weights;
+};
+
+constexpr std::array<ResonanceReference, 4> kResonanceReferences{{
+    {{{5.916853427886963, 7.757352828979492, 7.969632148742676, 8.158721923828125}},
+     {{6.174807548522949, 7.924232482910156, 8.048027038574219, 8.274372100830078}},
+     {{0.27419710572769995, 0.38775370041711105, 0.1467223412578838, 0.19132685259730509}}},
+    {{{6.022394180297852, 6.91353178024292, 7.786130428314209, 8.179064750671387}},
+     {{6.212732315063477, 6.970745086669922, 7.920019149780273, 8.295587539672852}},
+     {{0.27937603047131476, 0.17954452622558248, 0.24746179272875632, 0.2936176505743465}}},
+    {{{6.437050819396973, 7.464291572570801, 7.837002277374268, 8.186055183410645}},
+     {{6.629748821258545, 7.600702285766602, 7.937709331512451, 8.309038162231445}},
+     {{0.2928590143908253, 0.32897667116064094, 0.17179146310309187, 0.2063728513454419}}},
+    {{{6.627399921417236, 7.250248432159424, 7.8247971534729, 8.222831726074219}},
+     {{6.8298187255859375, 7.397768020629883, 7.941613674163818, 8.295548439025879}},
+     {{0.32187276609775717, 0.28767021980082047, 0.19948711527053295, 0.19096989883088925}}},
+}};
+
+float resonance_score(
+    pitchee_corner_vowel_t vowel,
+    const std::array<float, 4>& formants_hz
+) {
+    const auto index = static_cast<size_t>(vowel);
+    if (index >= kResonanceReferences.size()) return -1.0f;
+    const auto& reference = kResonanceReferences[index];
+    double position = 0.0;
+    for (size_t formant = 0; formant < 4; ++formant) {
+        const double value = std::log(std::max(
+            static_cast<double>(formants_hz[formant]),
+            1.0
+        ));
+        const double normalized = (
+            value - reference.male_median_log[formant]
+        ) / (
+            reference.female_median_log[formant]
+            - reference.male_median_log[formant]
+        );
+        position += reference.weights[formant] * normalized;
+    }
+    const double logit = -2.0 * std::log(1.0 / 3.0) * (position - 0.5);
+    return static_cast<float>(100.0 / (1.0 + std::exp(-logit)));
+}
+
+void realtime_resonance_f0_callback(
+    const pitchee_f0_frame_t* frame,
+    void* user_data
+) {
+    auto& stream = *static_cast<pitchee_realtime_resonance_t*>(user_data);
+    if (!frame || frame->voiced == 0 || !stream.callback_error.empty()) return;
+    try {
+        const int64_t center_sample = static_cast<int64_t>(std::llround(
+            frame->timestamp_seconds * pitchee::kSampleRate
+        ));
+        const int64_t start_sample = center_sample
+            - static_cast<int64_t>(stream.formant_window_samples);
+        const int64_t end_sample = center_sample;
+        const int64_t buffer_end = static_cast<int64_t>(
+            stream.buffer_start_sample + stream.buffer.size()
+        );
+        if (start_sample < static_cast<int64_t>(stream.buffer_start_sample)
+            || end_sample > buffer_end) {
+            return;
+        }
+        const size_t local_start = static_cast<size_t>(
+            start_sample - static_cast<int64_t>(stream.buffer_start_sample)
+        );
+        std::vector<float> window(
+            stream.buffer.begin() + static_cast<std::ptrdiff_t>(local_start),
+            stream.buffer.begin() + static_cast<std::ptrdiff_t>(local_start)
+                + static_cast<std::ptrdiff_t>(stream.formant_window_samples)
+        );
+        const auto formants = formantnet_predict(*stream.formant_model, window);
+        pitchee_resonance_frame_t output{};
+        output.timestamp_seconds = frame->timestamp_seconds;
+        output.f0_hz = frame->f0_hz;
+        output.f0_confidence = frame->confidence;
+        output.f1_hz = formants[0];
+        output.f2_hz = formants[1];
+        output.f3_hz = formants[2];
+        output.f4_hz = formants[3];
+        output.resonance_score = resonance_score(stream.vowel, formants);
+        output.vowel = stream.vowel;
+        output.voiced = 1;
+        ++stream.emitted_frames;
+        stream.frame_callback(&output, stream.user_data);
+    } catch (const std::exception& error) {
+        stream.callback_error = error.what();
+    }
 }
 
 std::vector<std::vector<float>> embed_waveforms(
@@ -949,6 +1264,157 @@ void pitchee_realtime_f0_reset(pitchee_realtime_f0_t* stream) {
 }
 
 void pitchee_realtime_f0_destroy(pitchee_realtime_f0_t* stream) {
+    delete stream;
+}
+
+pitchee_status_t pitchee_realtime_resonance_create(
+    pitchee_analyzer_t* analyzer,
+    const pitchee_realtime_resonance_options_t* options,
+    pitchee_realtime_resonance_t** out_stream,
+    char* error_message,
+    size_t error_message_capacity
+) {
+    if (!analyzer || !options || !out_stream) {
+        set_error(
+            error_message,
+            error_message_capacity,
+            "invalid realtime resonance argument"
+        );
+        return PITCHEE_ERROR_INVALID_ARGUMENT;
+    }
+    *out_stream = nullptr;
+    const int vowel_value = static_cast<int>(options->vowel);
+    if (vowel_value < 0 || vowel_value > 3) {
+        set_error(error_message, error_message_capacity, "invalid corner vowel");
+        return PITCHEE_ERROR_INVALID_ARGUMENT;
+    }
+    const size_t context_samples = options->context_samples > 0
+        ? static_cast<size_t>(options->context_samples)
+        : 5120;
+    const size_t hop_samples = options->hop_samples > 0
+        ? static_cast<size_t>(options->hop_samples)
+        : 256;
+    const size_t formant_window_samples = options->formant_window_samples > 0
+        ? static_cast<size_t>(options->formant_window_samples)
+        : 3200;
+    if (context_samples < 256 || hop_samples < 1
+        || hop_samples > context_samples
+        || formant_window_samples < 512) {
+        set_error(
+            error_message,
+            error_message_capacity,
+            "invalid realtime resonance window options"
+        );
+        return PITCHEE_ERROR_INVALID_ARGUMENT;
+    }
+    try {
+        auto stream = std::make_unique<pitchee_realtime_resonance_t>();
+        stream->f0_stream = new pitchee_realtime_f0_t();
+        stream->f0_stream->model = analyzer->swift_f0.get();
+        stream->f0_stream->context_samples = context_samples;
+        stream->f0_stream->hop_samples = hop_samples;
+        stream->formant_model = std::make_unique<pitchee::OrtModel>(
+            analyzer->model_directory / "FormantNet.onnx",
+            analyzer->intra_op_threads,
+            false
+        );
+        stream->vowel = options->vowel;
+        stream->formant_window_samples = formant_window_samples;
+        stream->context_samples = context_samples;
+        *out_stream = stream.release();
+        return PITCHEE_SUCCESS;
+    } catch (const std::exception& error) {
+        set_error(error_message, error_message_capacity, error.what());
+        return status_for_exception(error);
+    }
+}
+
+pitchee_status_t pitchee_realtime_resonance_process(
+    pitchee_realtime_resonance_t* stream,
+    const float* samples,
+    size_t sample_count,
+    pitchee_resonance_frame_callback_t frame_callback,
+    void* user_data,
+    size_t* out_frame_count,
+    char* error_message,
+    size_t error_message_capacity
+) {
+    if (out_frame_count) *out_frame_count = 0;
+    if (!stream || !stream->f0_stream || !stream->formant_model
+        || (!samples && sample_count > 0)) {
+        set_error(
+            error_message,
+            error_message_capacity,
+            "invalid realtime resonance stream"
+        );
+        return PITCHEE_ERROR_INVALID_ARGUMENT;
+    }
+    if (sample_count == 0) return PITCHEE_SUCCESS;
+    try {
+        stream->buffer.insert(
+            stream->buffer.end(),
+            samples,
+            samples + sample_count
+        );
+        stream->total_samples += sample_count;
+        const size_t maximum_buffer = stream->context_samples
+            + stream->formant_window_samples;
+        if (stream->buffer.size() > maximum_buffer) {
+            const size_t drop = stream->buffer.size() - maximum_buffer;
+            stream->buffer.erase(
+                stream->buffer.begin(),
+                stream->buffer.begin() + static_cast<std::ptrdiff_t>(drop)
+            );
+            stream->buffer_start_sample += drop;
+        }
+        stream->emitted_frames = 0;
+        stream->callback_error.clear();
+        stream->frame_callback = frame_callback;
+        stream->user_data = user_data;
+        size_t f0_frame_count = 0;
+        const auto status = pitchee_realtime_f0_process(
+            stream->f0_stream,
+            samples,
+            sample_count,
+            realtime_resonance_f0_callback,
+            stream,
+            &f0_frame_count,
+            error_message,
+            error_message_capacity
+        );
+        if (status != PITCHEE_SUCCESS) return status;
+        if (!stream->callback_error.empty()) {
+            set_error(
+                error_message,
+                error_message_capacity,
+                stream->callback_error
+            );
+            return PITCHEE_ERROR_INTERNAL;
+        }
+        if (out_frame_count) *out_frame_count = stream->emitted_frames;
+        return PITCHEE_SUCCESS;
+    } catch (const std::exception& error) {
+        set_error(error_message, error_message_capacity, error.what());
+        return status_for_exception(error);
+    }
+}
+
+void pitchee_realtime_resonance_reset(pitchee_realtime_resonance_t* stream) {
+    if (!stream) return;
+    if (stream->f0_stream) pitchee_realtime_f0_reset(stream->f0_stream);
+    stream->buffer.clear();
+    stream->buffer_start_sample = 0;
+    stream->total_samples = 0;
+    stream->emitted_frames = 0;
+    stream->callback_error.clear();
+}
+
+void pitchee_realtime_resonance_destroy(pitchee_realtime_resonance_t* stream) {
+    if (!stream) return;
+    if (stream->f0_stream) {
+        pitchee_realtime_f0_destroy(stream->f0_stream);
+        stream->f0_stream = nullptr;
+    }
     delete stream;
 }
 

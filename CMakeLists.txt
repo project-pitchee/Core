@@ -141,6 +141,17 @@ if(PITCHEE_BUILD_TESTS)
     target_link_libraries(pitchee_spectrum_test PRIVATE pitchee_core)
     add_test(NAME pitchee_spectrum_test COMMAND pitchee_spectrum_test)
 
+    add_executable(
+        pitchee_realtime_resonance_test
+        tests/realtime_resonance_test.cpp
+    )
+    target_link_libraries(pitchee_realtime_resonance_test PRIVATE pitchee_core)
+    add_test(
+        NAME pitchee_realtime_resonance_test
+        COMMAND pitchee_realtime_resonance_test
+            "${CMAKE_CURRENT_SOURCE_DIR}/models"
+    )
+
     add_executable(pitchee_wav_reader_test tests/wav_reader_test.cpp src/wav_reader.cpp)
     target_compile_features(pitchee_wav_reader_test PRIVATE cxx_std_17)
     target_include_directories(pitchee_wav_reader_test PRIVATE src)

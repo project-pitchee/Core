@@ -24,6 +24,7 @@ extern "C" {
 
 typedef struct pitchee_analyzer_t pitchee_analyzer_t;
 typedef struct pitchee_realtime_f0_t pitchee_realtime_f0_t;
+typedef struct pitchee_realtime_resonance_t pitchee_realtime_resonance_t;
 typedef struct pitchee_spectrum_t pitchee_spectrum_t;
 
 typedef enum pitchee_status_t {
@@ -101,6 +102,39 @@ typedef struct pitchee_f0_frame_t {
 
 typedef void (*pitchee_f0_frame_callback_t)(
     const pitchee_f0_frame_t* frame,
+    void* user_data
+);
+
+typedef enum pitchee_corner_vowel_t {
+    PITCHEE_CORNER_VOWEL_I = 0,
+    PITCHEE_CORNER_VOWEL_U = 1,
+    PITCHEE_CORNER_VOWEL_AE = 2,
+    PITCHEE_CORNER_VOWEL_A = 3
+} pitchee_corner_vowel_t;
+
+typedef struct pitchee_realtime_resonance_options_t {
+    int32_t context_samples;
+    int32_t hop_samples;
+    pitchee_corner_vowel_t vowel;
+    int32_t formant_window_samples;
+    int32_t reserved;
+} pitchee_realtime_resonance_options_t;
+
+typedef struct pitchee_resonance_frame_t {
+    double timestamp_seconds;
+    float f0_hz;
+    float f0_confidence;
+    float f1_hz;
+    float f2_hz;
+    float f3_hz;
+    float f4_hz;
+    float resonance_score;
+    pitchee_corner_vowel_t vowel;
+    int32_t voiced;
+} pitchee_resonance_frame_t;
+
+typedef void (*pitchee_resonance_frame_callback_t)(
+    const pitchee_resonance_frame_t* frame,
     void* user_data
 );
 
@@ -244,6 +278,33 @@ PITCHEE_API pitchee_status_t pitchee_realtime_f0_process(
 PITCHEE_API void pitchee_realtime_f0_reset(pitchee_realtime_f0_t* stream);
 
 PITCHEE_API void pitchee_realtime_f0_destroy(pitchee_realtime_f0_t* stream);
+
+PITCHEE_API pitchee_status_t pitchee_realtime_resonance_create(
+    pitchee_analyzer_t* analyzer,
+    const pitchee_realtime_resonance_options_t* options,
+    pitchee_realtime_resonance_t** out_stream,
+    char* error_message,
+    size_t error_message_capacity
+);
+
+PITCHEE_API pitchee_status_t pitchee_realtime_resonance_process(
+    pitchee_realtime_resonance_t* stream,
+    const float* samples,
+    size_t sample_count,
+    pitchee_resonance_frame_callback_t frame_callback,
+    void* user_data,
+    size_t* out_frame_count,
+    char* error_message,
+    size_t error_message_capacity
+);
+
+PITCHEE_API void pitchee_realtime_resonance_reset(
+    pitchee_realtime_resonance_t* stream
+);
+
+PITCHEE_API void pitchee_realtime_resonance_destroy(
+    pitchee_realtime_resonance_t* stream
+);
 
 PITCHEE_API pitchee_status_t pitchee_spectrum_create(
     const pitchee_spectrum_options_t* options,

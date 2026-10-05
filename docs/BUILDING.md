@@ -237,6 +237,7 @@ models/
   ECAPA.onnx
   VFPHead.onnx
   SwiftF0.onnx
+  FormantNet.onnx
   Naturalness.onnx
   manifest.json
 ```
