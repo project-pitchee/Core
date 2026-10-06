@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
     PitcheeCore
-    VERSION 0.2.0
+    VERSION 0.3.0
     DESCRIPTION "Cross-platform on-device voice analysis core"
     LANGUAGES C CXX
 )
@@ -30,6 +30,7 @@ endif()
 add_library(pitchee_core ${PITCHEE_LIBRARY_TYPE}
     src/analyzer.cpp
     src/audio.cpp
+    src/formant_tracker.cpp
     src/json.cpp
     src/naturalness.cpp
     src/ort_runtime.cpp

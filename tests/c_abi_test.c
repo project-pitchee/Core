@@ -9,7 +9,7 @@ static void progress_callback(const pitchee_progress_t* progress, void* user_dat
 }
 
 int main(void) {
-    if (strcmp(pitchee_core_version(), "0.2.0") != 0) {
+    if (strcmp(pitchee_core_version(), "0.3.0") != 0) {
         fprintf(stderr, "unexpected version\n");
         return 1;
     }

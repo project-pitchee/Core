@@ -18,7 +18,7 @@ PitcheeCore 是一个独立、跨平台的 C++17 语音预测库。输入一段�
 - VFP 语音顺性别女性概率分析
 - Naturalness 语音自然度分析
 - SwiftF0 基频分析
-- 固定元音实时共鸣分析（SwiftF0 + FormantNet）
+- 固定元音实时共鸣分析（SwiftF0 + 谐波包络 F1-F4 跟踪器）
 - 自定义综合分计算方法
 - UTF-8 JSON 数据输出
 
@@ -304,8 +304,8 @@ SwiftF0 每帧时间步长是 256 samples。Core 使用重叠上下文维持低�
 
 ### 实时固定元音共鸣
 
-实时共鸣流在内部串联 SwiftF0 和 FormantNet。调用方必须传入本次要分析的 IPA
-元音，Core 不包含也不需要音素识别模型。
+实时共鸣流在内部串联 SwiftF0 和 F0 约束的谐波包络跟踪器。调用方必须传入
+本次要分析的 IPA 元音，Core 不包含也不需要音素识别模型。
 
 推荐 IPA 字符串：
 
@@ -324,7 +324,7 @@ pitchee_realtime_resonance_options_t resonance_options = {
     5120,       /* SwiftF0 context: 320 ms */
     256,        /* SwiftF0 hop: 16 ms */
     "æ",        /* fixed IPA vowel */
-    3200,       /* FormantNet causal window: 200 ms */
+    3200,       /* legacy window field, retained for ABI compatibility */
     0
 };
 
@@ -387,11 +387,12 @@ pitchee_realtime_resonance_destroy(resonance_stream);
 | --- | --- |
 | `timestamp_seconds` | SwiftF0 帧在输入音频中的时间戳 |
 | `f0_hz`、`f0_confidence` | SwiftF0 基频及置信度 |
-| `f1_hz`–`f4_hz` | FormantNet 预测的前四个共振峰 |
+| `f1_hz`–`f4_hz` | 谐波包络跟踪器输出的前四个共振峰 |
 | `resonance_score` | 指定 IPA 元音对应的 0–100 校准共鸣分 |
 | `vowel` | 调用 `create` 时传入的 IPA 字符串 |
 
-FormantNet 使用当前 SwiftF0 帧之前 200 ms 的纯因果窗口，不读取未来音频。
+跟踪器使用当前 SwiftF0 帧之前的历史状态和 0.5 秒稳健窗口；当前元音对应
+的稳定子集为 `i: F2+F3`、`u: F1+F3`、`ae: F2+F3`、`a: F2+F4`。跟踪器不读取未来音频。
 同一个 resonance stream 不能并发调用；analyzer 必须比 stream 活得久。
 
 ### Spectrum 频谱
@@ -723,7 +724,6 @@ models/
   ECAPA.onnx
   VFPHead.onnx
   SwiftF0.onnx
-  FormantNet.onnx
   Naturalness.onnx
   manifest.json
 ```
@@ -731,7 +731,7 @@ models/
 调用 `pitchee_analyzer_create(model_directory, ...)` 时，目录中必须存在这些
 文件。模型只加载一次，Core 不需要网络，也不会自动下载模型。
 
-`VFPHead.onnx`、`Naturalness.onnx`、`FormantNet.onnx` 和官方 `SwiftF0.onnx` 均使用未压缩的
+`VFPHead.onnx`、`Naturalness.onnx` 和官方 `SwiftF0.onnx` 均使用未压缩的
 FP32 权重。`ECAPA.onnx` 当前仍为 FP16 权重，用于控制移动端包体和内存占用。
 `ECAPAFrontend.onnx` 和 `ECAPA.onnx` 的时间维是动态的，因此 VAD 短语音段
 可以按原长度直接推理，不需要补齐到 1.515 秒。
@@ -782,11 +782,11 @@ FP32 权重。`ECAPA.onnx` 当前仍为 FP16 权重，用于控制移动端包�
 
 项目地址：<https://github.com/lars76/swift-f0>
 
-### FormantNet
+### Formant tracking references
 
-实时共鸣分析使用 FormantNet ONNX 预测 F1-F4：
-
-<https://github.com/NemoursResearch/FormantNet>
+实时共鸣分析当前使用 Core 内置的 F0 约束谐波包络跟踪器，不再在运行时加载
+FormantNet.onnx。F1-F4 跟踪的文献依据和逐元音稳定子集选择见本项目
+`experiments/harmonics_realtime/RESONANCE_STANDARD.md` 所在的开发仓库。
 
 ### ECAPA-TDNN
 

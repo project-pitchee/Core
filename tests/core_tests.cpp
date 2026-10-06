@@ -21,7 +21,7 @@ bool close(double left, double right, double tolerance = 1e-9) {
 }  // namespace
 
 int main() {
-    require(std::string(pitchee_core_version()) == "0.2.0", "version");
+    require(std::string(pitchee_core_version()) == "0.3.0", "version");
 
     pitchee_composite_score_t score{};
     require(

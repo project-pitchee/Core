@@ -144,8 +144,9 @@ the stream. The analyzer must outlive every stream created from it.
 
 ## Realtime resonance
 
-Realtime resonance combines SwiftF0 with FormantNet. The caller must provide a
-fixed corner vowel; there is no phoneme-recognition model in Core.
+Realtime resonance combines SwiftF0 with a causal F0-constrained
+harmonic-envelope formant tracker. The caller must provide a fixed corner
+vowel; there is no phoneme-recognition model in Core.
 
 ```c
 pitchee_realtime_resonance_options_t options = {
@@ -169,8 +170,8 @@ pitchee_realtime_resonance_create(
 The recommended IPA strings are `"i"`, `"u"`, `"æ"`, and `"ɑ"`. ASCII aliases
 `"ae"`, `"a"`, and `"A"` are accepted for compatibility.
 `pitchee_realtime_resonance_process()` accepts any number of 16 kHz mono
-Float32 samples. For each voiced SwiftF0 frame it measures F1-F4 from the
-preceding formant window and invokes:
+Float32 samples. For each voiced SwiftF0 frame it updates F1-F4 with a 0.5 s
+causal history and invokes:
 
 ```c
 void on_resonance_frame(
@@ -185,9 +186,15 @@ The callback contains:
 | --- | --- |
 | `timestamp_seconds` | Monotonic SwiftF0 frame timestamp. |
 | `f0_hz`, `f0_confidence` | SwiftF0 estimate and confidence. |
-| `f1_hz` ... `f4_hz` | FormantNet formant estimates. |
+| `f1_hz` ... `f4_hz` | Harmonic-tracker formant estimates. |
 | `resonance_score` | Calibrated 0-100 score for the fixed vowel. |
 | `vowel` | The caller-supplied corner vowel. |
+
+The active per-vowel score selects the stable formant subset for each vowel:
+`i: F2+F3`, `u: F1+F3`, `ae: F2+F3`, `a: F2+F4`. The formant model is
+implemented in Core and does not require FormantNet.onnx. The
+`formant_window_samples` option remains in the ABI for compatibility but is no
+longer used as a neural-network input width.
 
 Call `pitchee_realtime_resonance_reset()` between recordings and
 `pitchee_realtime_resonance_destroy()` when finished. The analyzer must outlive
