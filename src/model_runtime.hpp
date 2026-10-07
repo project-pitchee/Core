@@ -1,5 +1,5 @@
-#ifndef PITCHEE_ORT_RUNTIME_HPP
-#define PITCHEE_ORT_RUNTIME_HPP
+#ifndef PITCHEE_MODEL_RUNTIME_HPP
+#define PITCHEE_MODEL_RUNTIME_HPP
 
 #include <cstdint>
 #include <filesystem>
@@ -17,17 +17,17 @@ struct Tensor {
     DataType data_type = DataType::Float32;
 };
 
-class OrtModel {
+class ModelRuntime {
 public:
-    OrtModel(
+    ModelRuntime(
         const std::filesystem::path& path,
         int intra_op_threads,
         bool use_coreml
     );
-    ~OrtModel();
+    ~ModelRuntime();
 
-    OrtModel(const OrtModel&) = delete;
-    OrtModel& operator=(const OrtModel&) = delete;
+    ModelRuntime(const ModelRuntime&) = delete;
+    ModelRuntime& operator=(const ModelRuntime&) = delete;
 
     Tensor run(const std::unordered_map<std::string, Tensor>& inputs) const;
     std::vector<Tensor> run_all(
@@ -39,7 +39,7 @@ private:
     Impl* impl_ = nullptr;
 };
 
-bool ort_available();
+bool model_runtime_available();
 
 }  // namespace pitchee
 

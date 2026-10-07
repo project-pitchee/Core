@@ -106,7 +106,7 @@ struct PitchResult {
     int voiced_window_count = 0;
 };
 
-class OrtModel;
+class ModelRuntime;
 
 class NaturalnessModel {
 public:
@@ -118,7 +118,7 @@ public:
     double score(const std::vector<float>& features) const;
 
 private:
-    std::unique_ptr<OrtModel> model_;
+    std::unique_ptr<ModelRuntime> model_;
 };
 
 CompositeScore calculate_composite_score(

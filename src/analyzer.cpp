@@ -1,5 +1,5 @@
 #include "internal.hpp"
-#include "ort_runtime.hpp"
+#include "model_runtime.hpp"
 #include "vad.hpp"
 #include "wav_reader.hpp"
 
@@ -21,10 +21,10 @@ struct pitchee_analyzer_t {
     std::string model_version = "unknown";
     int intra_op_threads = 2;
     bool use_coreml = true;
-    std::unique_ptr<pitchee::OrtModel> ecapa_frontend;
-    std::unique_ptr<pitchee::OrtModel> ecapa;
-    std::unique_ptr<pitchee::OrtModel> vfp_head;
-    std::unique_ptr<pitchee::OrtModel> swift_f0;
+    std::unique_ptr<pitchee::ModelRuntime> ecapa_frontend;
+    std::unique_ptr<pitchee::ModelRuntime> ecapa;
+    std::unique_ptr<pitchee::ModelRuntime> vfp_head;
+    std::unique_ptr<pitchee::ModelRuntime> swift_f0;
     std::unique_ptr<pitchee::VadDetector> vad;
     std::unique_ptr<pitchee::NaturalnessModel> naturalness;
     float min_f0_hz = 75.0f;
@@ -33,7 +33,7 @@ struct pitchee_analyzer_t {
 };
 
 struct pitchee_realtime_f0_t {
-    pitchee::OrtModel* model = nullptr;
+    pitchee::ModelRuntime* model = nullptr;
     size_t context_samples = 5120;
     size_t hop_samples = 256;
     size_t buffer_start_sample = 0;
@@ -132,7 +132,7 @@ pitchee_status_t status_for_exception(const std::exception& error) {
 }
 
 pitchee::PitchResult analyze_pitch(
-    pitchee::OrtModel& model,
+    pitchee::ModelRuntime& model,
     const std::vector<float>& samples,
     const ProgressReporter& reporter,
     const F0Thresholds& thresholds
@@ -229,8 +229,8 @@ pitchee::PitchResult analyze_pitch(
 pitchee::Tensor canonicalize_ecapa_features(pitchee::Tensor features);
 
 std::vector<std::vector<float>> embed_waveforms(
-    pitchee::OrtModel& frontend,
-    pitchee::OrtModel& encoder,
+    pitchee::ModelRuntime& frontend,
+    pitchee::ModelRuntime& encoder,
     const std::vector<std::vector<float>>& waveforms,
     const ProgressReporter& reporter,
     pitchee_progress_stage_t stage
@@ -342,7 +342,7 @@ pitchee::Tensor canonicalize_ecapa_features(pitchee::Tensor features) {
 }
 
 std::vector<double> classify_embeddings(
-    pitchee::OrtModel& model,
+    pitchee::ModelRuntime& model,
     const std::vector<std::vector<float>>& embeddings,
     const ProgressReporter& reporter
 ) {
@@ -481,22 +481,22 @@ pitchee_status_t pitchee_analyzer_create(
         analyzer->max_f0_hz = thresholds.max_hz;
         analyzer->min_f0_confidence = thresholds.min_confidence;
         const auto directory = analyzer->model_directory;
-        analyzer->ecapa_frontend = std::make_unique<pitchee::OrtModel>(
+        analyzer->ecapa_frontend = std::make_unique<pitchee::ModelRuntime>(
             directory / "ECAPAFrontend.onnx",
             analyzer->intra_op_threads,
             false
         );
-        analyzer->ecapa = std::make_unique<pitchee::OrtModel>(
+        analyzer->ecapa = std::make_unique<pitchee::ModelRuntime>(
             directory / "ECAPA.onnx",
             analyzer->intra_op_threads,
             analyzer->use_coreml
         );
-        analyzer->vfp_head = std::make_unique<pitchee::OrtModel>(
+        analyzer->vfp_head = std::make_unique<pitchee::ModelRuntime>(
             directory / "VFPHead.onnx",
             analyzer->intra_op_threads,
             false
         );
-        analyzer->swift_f0 = std::make_unique<pitchee::OrtModel>(
+        analyzer->swift_f0 = std::make_unique<pitchee::ModelRuntime>(
             directory / "SwiftF0.onnx",
             analyzer->intra_op_threads,
             false

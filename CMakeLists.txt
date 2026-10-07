@@ -44,7 +44,7 @@ add_library(pitchee_core ${PITCHEE_LIBRARY_TYPE}
     src/audio.cpp
     src/json.cpp
     src/naturalness.cpp
-    src/ort_runtime.cpp
+    src/model_runtime.cpp
     src/scoring.cpp
     src/spectrum.cpp
     src/vad.cpp

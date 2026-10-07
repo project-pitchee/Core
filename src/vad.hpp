@@ -2,7 +2,7 @@
 #define PITCHEE_VAD_HPP
 
 #include "internal.hpp"
-#include "ort_runtime.hpp"
+#include "model_runtime.hpp"
 
 #include <filesystem>
 #include <functional>
@@ -29,7 +29,7 @@ private:
     ) const;
 
     bool lightweight_ = false;
-    std::unique_ptr<OrtModel> model_;
+    std::unique_ptr<ModelRuntime> model_;
 };
 
 }  // namespace pitchee

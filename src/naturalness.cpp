@@ -1,5 +1,5 @@
 #include "internal.hpp"
-#include "ort_runtime.hpp"
+#include "model_runtime.hpp"
 
 #include <algorithm>
 #include <stdexcept>
@@ -9,7 +9,7 @@ namespace pitchee {
 NaturalnessModel::NaturalnessModel(
     const std::filesystem::path& path,
     int intra_op_threads
-) : model_(std::make_unique<OrtModel>(path, intra_op_threads, false)) {}
+) : model_(std::make_unique<ModelRuntime>(path, intra_op_threads, false)) {}
 
 NaturalnessModel::~NaturalnessModel() = default;
 

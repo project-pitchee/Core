@@ -1,4 +1,4 @@
-#include "ort_runtime.hpp"
+#include "model_runtime.hpp"
 
 #include <atomic>
 #include <cstdlib>
@@ -198,7 +198,7 @@ Tensor ncnn_to_tensor(const ncnn::Mat& output) {
 }  // namespace
 #endif
 
-bool ort_available() {
+bool model_runtime_available() {
 #ifdef PITCHEE_ENABLE_ORT
     return true;
 #else
@@ -208,7 +208,7 @@ bool ort_available() {
 
 enum class ModelBackend { Ort, Ncnn };
 
-struct OrtModel::Impl {
+struct ModelRuntime::Impl {
     explicit Impl(
         const std::filesystem::path& path,
         int intra_op_threads,
@@ -317,13 +317,13 @@ struct OrtModel::Impl {
 #endif
 };
 
-OrtModel::OrtModel(
+ModelRuntime::ModelRuntime(
     const std::filesystem::path& path,
     int intra_op_threads,
     bool use_coreml
 ) : impl_(new Impl(path, intra_op_threads, use_coreml)) {}
 
-std::vector<Tensor> OrtModel::run_all(
+std::vector<Tensor> ModelRuntime::run_all(
     const std::unordered_map<std::string, Tensor>& inputs
 ) const {
     if (!impl_) {
@@ -540,7 +540,7 @@ std::vector<Tensor> OrtModel::run_all(
 #endif
 }
 
-Tensor OrtModel::run(
+Tensor ModelRuntime::run(
     const std::unordered_map<std::string, Tensor>& inputs
 ) const {
     auto outputs = run_all(inputs);
@@ -548,7 +548,7 @@ Tensor OrtModel::run(
     return std::move(outputs.front());
 }
 
-OrtModel::~OrtModel() {
+ModelRuntime::~ModelRuntime() {
     delete impl_;
 }
 

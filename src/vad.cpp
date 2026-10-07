@@ -172,7 +172,7 @@ VadDetector::VadDetector(
     const char* backend = std::getenv("PITCHEE_VAD_BACKEND");
     lightweight_ = backend && std::strcmp(backend, "light") == 0;
     if (!lightweight_) {
-        model_ = std::make_unique<OrtModel>(model_path, intra_op_threads, false);
+        model_ = std::make_unique<ModelRuntime>(model_path, intra_op_threads, false);
     }
 }
 
