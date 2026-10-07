@@ -13,8 +13,8 @@ reduction             49.8%
 ```
 
 The Android benchmark debug APK, including all six models and ten test WAVs,
-changed from `169,636,812` bytes to `91,647,680` bytes. The reduction is about
-`77,989,132` bytes (`74.4 MiB`) or `46.0%`.
+changed from `88,959,197` bytes to `50,102,901` bytes in a clean build. The
+reduction is `38,856,296` bytes (`37.1 MiB`) or `43.7%`.
 
 ## ANA-AN00 arm64 validation
 
