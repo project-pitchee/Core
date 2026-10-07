@@ -18,7 +18,7 @@ PitcheeCore 是一个独立、跨平台的 C++17 语音预测库。输入一段�
 - VFP 语音顺性别女性概率分析
 - Naturalness 语音自然度分析
 - SwiftF0 基频分析
-- 固定元音实时共鸣分析（SwiftF0 + 谐波包络 F1-F4 跟踪器）
+- VFP / Naturalness 滑动窗口实时分析
 - 自定义综合分计算方法
 - UTF-8 JSON 数据输出
 
@@ -162,7 +162,9 @@ Core 的 16 kHz 重采样与 FFmpeg `swresample` 的默认参数对齐，并在�
 #include <stdio.h>
 
 int main(void) {
-    pitchee_analyzer_options_t options = {2, 0, 0};
+    pitchee_analyzer_options_t options = {
+        2, 0, {75.0f, 600.0f, 0.9f, 0}
+    };
     pitchee_analyzer_t* analyzer = NULL;
     char error[1024] = {0};
 
@@ -255,7 +257,9 @@ status = pitchee_analyzer_analyze_wav_file_with_progress(
 
 ```c
 pitchee_realtime_f0_t* f0_stream = NULL;
-pitchee_realtime_f0_options_t f0_options = {5120, 256, 0};
+pitchee_realtime_f0_options_t f0_options = {
+    5120, 256, {75.0f, 600.0f, 0.9f, 0}
+};
 
 pitchee_realtime_f0_create(
     analyzer,
@@ -297,103 +301,11 @@ pitchee_realtime_f0_destroy(f0_stream);
 
 SwiftF0 每帧时间步长是 256 samples。Core 使用重叠上下文维持低频稳定性，
 并对重复帧按整数 sample index 去重。`voiced` 为 Core 的显示判定，当前要求
-置信度大于 `0.9` 且 F0 位于 `75–600 Hz`。
+置信度与 F0 必须通过该流配置的 `min_confidence`、`min_f0_hz` 和 `max_f0_hz`
+阈值。零值表示使用默认值 `0.9 / 75 / 600 Hz`。
 
 同一个实时流必须串行调用；不同流可以使用不同 analyzer。analyzer 的生命周期
 必须长于其创建的实时流。
-
-### 实时固定元音共鸣
-
-实时共鸣流在内部串联 SwiftF0 和 F0 约束的谐波包络跟踪器。调用方必须传入
-本次要分析的 IPA 元音，Core 不包含也不需要音素识别模型。
-
-推荐 IPA 字符串：
-
-```text
-"i"
-"u"
-"æ"
-"ɑ"
-```
-
-为兼容已有代码，也接受 `"ae"`、`"a"`、`"A"`。
-
-```c
-pitchee_realtime_resonance_t* resonance_stream = NULL;
-pitchee_realtime_resonance_options_t resonance_options = {
-    5120,       /* SwiftF0 context: 320 ms */
-    256,        /* SwiftF0 hop: 16 ms */
-    "æ",        /* fixed IPA vowel */
-    3200,       /* legacy window field, retained for ABI compatibility */
-    0
-};
-
-pitchee_status_t status = pitchee_realtime_resonance_create(
-    analyzer,
-    &resonance_options,
-    &resonance_stream,
-    error,
-    sizeof(error)
-);
-if (status != PITCHEE_SUCCESS) {
-    fprintf(stderr, "%s\n", error);
-}
-
-void resonance_callback(
-    const pitchee_resonance_frame_t* frame,
-    void* user_data
-) {
-    if (!frame->voiced) return;
-
-    printf(
-        "t=%.3f f0=%.2f conf=%.3f "
-        "F1=%.1f F2=%.1f F3=%.1f F4=%.1f score=%.2f vowel=%s\n",
-        frame->timestamp_seconds,
-        frame->f0_hz,
-        frame->f0_confidence,
-        frame->f1_hz,
-        frame->f2_hz,
-        frame->f3_hz,
-        frame->f4_hz,
-        frame->resonance_score,
-        frame->vowel
-    );
-    (void)user_data;
-}
-
-/* samples 必须是任意长度的 16 kHz mono Float32 PCM。 */
-size_t emitted = 0;
-status = pitchee_realtime_resonance_process(
-    resonance_stream,
-    samples,
-    sample_count,
-    resonance_callback,
-    NULL,
-    &emitted,
-    error,
-    sizeof(error)
-);
-
-/* 开始下一段录音时清空缓冲。 */
-pitchee_realtime_resonance_reset(resonance_stream);
-
-/* 录音结束时释放。 */
-pitchee_realtime_resonance_destroy(resonance_stream);
-```
-
-回调字段：
-
-| 字段 | 含义 |
-| --- | --- |
-| `timestamp_seconds` | SwiftF0 帧在输入音频中的时间戳 |
-| `f0_hz`、`f0_confidence` | SwiftF0 基频及置信度 |
-| `f1_hz`–`f4_hz` | 谐波包络跟踪器输出的前四个共振峰 |
-| `resonance_score` | 指定 IPA 元音对应的 0–100 校准共鸣分 |
-| `vowel` | 调用 `create` 时传入的 IPA 字符串 |
-
-跟踪器使用当前 SwiftF0 帧之前的历史状态和 0.5 秒稳健窗口；当前元音对应
-的稳定子集为 `i: F2+F3`、`u: F1+F3`、`ae: F2+F3`、`a: F2+F4`。跟踪器不读取未来音频。
-同一个 resonance stream 不能并发调用；analyzer 必须比 stream 活得久。
 
 ### Spectrum 频谱
 
@@ -567,7 +479,7 @@ end_seconds - start_seconds
 | `window_seconds` | 秒 | F0 时间轴窗口长度，固定为 `0.05`。 |
 | `mean_hz` | Hz | 有效浊音帧的平均 F0。没有有效帧时为 `null`。 |
 | `standard_deviation_hz` | Hz | 浊音 F0 的总体标准差，分母为帧数 `N`。 |
-| `voiced_frame_count` | 数量 | 置信度大于 `0.9` 且 F0 在 `75–600 Hz` 的帧数。 |
+| `voiced_frame_count` | 数量 | 通过该 analyzer 配置的 SwiftF0 阈值的帧数。 |
 | `voiced_window_count` | 数量 | 至少包含一个有效浊音帧的 0.05 秒窗口数。 |
 | `windows` | 数组 | 原始分析音频时间轴上的 F0 时间序列。 |
 
@@ -782,12 +694,6 @@ FP32 权重。`ECAPA.onnx` 当前仍为 FP16 权重，用于控制移动端包�
 
 项目地址：<https://github.com/lars76/swift-f0>
 
-### Formant tracking references
-
-实时共鸣分析当前使用 Core 内置的 F0 约束谐波包络跟踪器，不再在运行时加载
-FormantNet.onnx。F1-F4 跟踪的文献依据和逐元音稳定子集选择见本项目
-`experiments/harmonics_realtime/RESONANCE_STANDARD.md` 所在的开发仓库。
-
 ### ECAPA-TDNN
 
 ECAPA speaker embedding 来自：
@@ -843,7 +749,6 @@ ONNX Runtime 用于所有平台的模型执行：
 | 组件 | 许可证 |
 | --- | --- |
 | SwiftF0 模型与算法 | MIT，许可证位于 `models/SWIFT_F0_LICENSE` |
-| FormantNet 模型与算法 | MIT，许可证位于 `models/FORMANTNET_LICENSE` |
 | Silero VAD | MIT |
 | SpeechBrain | Apache License 2.0 |
 | ONNX Runtime | MIT |

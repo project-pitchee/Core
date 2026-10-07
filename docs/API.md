@@ -6,7 +6,7 @@
 pitchee_analyzer_options_t options = {
     .intra_op_threads = 2,
     .use_coreml = 0,
-    .reserved = 0
+    .thresholds = {75.0f, 600.0f, 0.9f, 0}
 };
 
 pitchee_analyzer_t* analyzer = NULL;
@@ -30,6 +30,21 @@ Destroy it with `pitchee_analyzer_destroy(analyzer)`.
 Every analysis call must explicitly pass either
 `PITCHEE_SCORE_PROFILE_FEMINIZATION` or
 `PITCHEE_SCORE_PROFILE_MASCULINIZATION`.
+
+All SwiftF0-enabled options now carry:
+
+```c
+typedef struct pitchee_f0_thresholds_t {
+    float min_f0_hz;
+    float max_f0_hz;
+    float min_confidence;
+    int32_t reserved;
+} pitchee_f0_thresholds_t;
+```
+
+Zero values select `75 Hz / 600 Hz / 0.9`. The field is present in
+`pitchee_analyzer_options_t`, `pitchee_realtime_f0_options_t`, and
+`pitchee_realtime_scores_options_t`.
 
 ## Raw PCM input
 
@@ -109,7 +124,9 @@ analyzer must not be used concurrently.
 Create one stream per microphone session:
 
 ```c
-pitchee_realtime_f0_options_t options = {5120, 256, 0};
+pitchee_realtime_f0_options_t options = {
+    5120, 256, {75.0f, 600.0f, 0.9f, 0}
+};
 pitchee_realtime_f0_t* stream = NULL;
 
 pitchee_realtime_f0_create(
@@ -136,29 +153,35 @@ Each frame contains:
 | `timestamp_seconds` | Monotonic timestamp since the stream was reset. |
 | `f0_hz` | Raw SwiftF0 estimate. |
 | `confidence` | SwiftF0 confidence in `[0, 1]`. |
-| `voiced` | `1` when confidence is above `0.9` and F0 is in `75–600 Hz`. |
+| `voiced` | `1` when confidence and F0 pass the stream thresholds. |
 
 The first callback occurs after the full context is available. Call
 `pitchee_realtime_f0_reset()` when starting a new recording without recreating
 the stream. The analyzer must outlive every stream created from it.
 
-## Realtime resonance
+## Realtime VFP and naturalness
 
-Realtime resonance combines SwiftF0 with a causal F0-constrained
-harmonic-envelope formant tracker. The caller must provide a fixed corner
-vowel; there is no phoneme-recognition model in Core.
+This stream emits one VFP and naturalness score after every full sliding model
+window. The default window is 1.515 s (`24240` samples) and the default update
+hop is 100 ms (`1600` samples). It reuses the analyzer's ECAPA, VFPHead, and
+Naturalness sessions. SwiftF0 runs on the incoming audio and gates the heavy
+score models: a window is scored only when at least one valid voiced F0 frame
+was observed.
+
+For low-latency UI, a 500 ms window (`8000` samples) is supported because the
+models are also used for short speech segments without padding. It produces the
+first score after roughly 0.5 s but is less stable than the full 1.515 s mode.
+Use `intra_op_threads = 4` on an 8-core desktop CPU for the best measured
+throughput.
 
 ```c
-pitchee_realtime_resonance_options_t options = {
-    5120,
-    256,
-    "\xC3\xA6",
-    3200,
-    0
+pitchee_realtime_scores_options_t options = {
+    24240,
+    1600,
+    {75.0f, 600.0f, 0.9f, 0}
 };
-pitchee_realtime_resonance_t* stream = NULL;
-
-pitchee_realtime_resonance_create(
+pitchee_realtime_scores_t* stream = NULL;
+pitchee_realtime_scores_create(
     analyzer,
     &options,
     &stream,
@@ -167,38 +190,28 @@ pitchee_realtime_resonance_create(
 );
 ```
 
-The recommended IPA strings are `"i"`, `"u"`, `"æ"`, and `"ɑ"`. ASCII aliases
-`"ae"`, `"a"`, and `"A"` are accepted for compatibility.
-`pitchee_realtime_resonance_process()` accepts any number of 16 kHz mono
-Float32 samples. For each voiced SwiftF0 frame it updates F1-F4 with a 0.5 s
-causal history and invokes:
-
 ```c
-void on_resonance_frame(
-    const pitchee_resonance_frame_t* frame,
+void on_scores(
+    const pitchee_realtime_scores_frame_t* frame,
     void* user_data
-);
+) {
+    if (!frame->voiced) return;
+    printf("t=%.3f f0=%.2f vfp=%.2f naturalness=%.2f\n",
+           frame->timestamp_seconds,
+           frame->f0_hz,
+           frame->vfp_standard_score,
+           frame->naturalness_score);
+}
 ```
 
-The callback contains:
+`pitchee_realtime_scores_process()` accepts any number of 16 kHz mono Float32
+samples. The first callback happens after the first full 1.515 s window; later
+callbacks occur every 100 ms. Naturalness uses the current window embedding and
+up to the latest 20 window embeddings for the shared standard-deviation
+feature, matching the batch model's feature shape.
 
-| Field | Meaning |
-| --- | --- |
-| `timestamp_seconds` | Monotonic SwiftF0 frame timestamp. |
-| `f0_hz`, `f0_confidence` | SwiftF0 estimate and confidence. |
-| `f1_hz` ... `f4_hz` | Harmonic-tracker formant estimates. |
-| `resonance_score` | Calibrated 0-100 score for the fixed vowel. |
-| `vowel` | The caller-supplied corner vowel. |
-
-The active per-vowel score selects the stable formant subset for each vowel:
-`i: F2+F3`, `u: F1+F3`, `ae: F2+F3`, `a: F2+F4`. The formant model is
-implemented in Core and does not require FormantNet.onnx. The
-`formant_window_samples` option remains in the ABI for compatibility but is no
-longer used as a neural-network input width.
-
-Call `pitchee_realtime_resonance_reset()` between recordings and
-`pitchee_realtime_resonance_destroy()` when finished. The analyzer must outlive
-the stream.
+Call `pitchee_realtime_scores_reset()` between recordings and
+`pitchee_realtime_scores_destroy()` when finished.
 
 ## Spectrum
 

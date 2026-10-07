@@ -5,11 +5,22 @@ public final class PitcheeAnalyzer {
     private var handle: OpaquePointer?
     private let lock = NSLock()
 
-    public init(modelDirectory: URL, threads: Int32 = 2) throws {
+    public init(
+        modelDirectory: URL,
+        threads: Int32 = 2,
+        minF0Hz: Float = 75,
+        maxF0Hz: Float = 600,
+        minConfidence: Float = 0.9
+    ) throws {
         var options = pitchee_analyzer_options_t(
             intra_op_threads: threads,
             use_coreml: 1,
-            reserved: 0
+            thresholds: pitchee_f0_thresholds_t(
+                min_f0_hz: minF0Hz,
+                max_f0_hz: maxF0Hz,
+                min_confidence: minConfidence,
+                reserved: 0
+            )
         )
         var error = [CChar](repeating: 0, count: 1024)
         var created: OpaquePointer?

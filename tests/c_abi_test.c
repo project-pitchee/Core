@@ -9,7 +9,7 @@ static void progress_callback(const pitchee_progress_t* progress, void* user_dat
 }
 
 int main(void) {
-    if (strcmp(pitchee_core_version(), "0.3.0") != 0) {
+    if (strcmp(pitchee_core_version(), "0.4.0") != 0) {
         fprintf(stderr, "unexpected version\n");
         return 1;
     }
@@ -71,29 +71,6 @@ int main(void) {
             0
         ) != PITCHEE_ERROR_INVALID_ARGUMENT) {
         fprintf(stderr, "unexpected realtime F0 process status\n");
-        return 1;
-    }
-    if (pitchee_realtime_resonance_create(
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            0
-        ) != PITCHEE_ERROR_INVALID_ARGUMENT) {
-        fprintf(stderr, "unexpected realtime resonance create status\n");
-        return 1;
-    }
-    if (pitchee_realtime_resonance_process(
-            NULL,
-            NULL,
-            0,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            0
-        ) != PITCHEE_ERROR_INVALID_ARGUMENT) {
-        fprintf(stderr, "unexpected realtime resonance process status\n");
         return 1;
     }
     if (pitchee_spectrum_create(

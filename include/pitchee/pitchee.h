@@ -24,7 +24,7 @@ extern "C" {
 
 typedef struct pitchee_analyzer_t pitchee_analyzer_t;
 typedef struct pitchee_realtime_f0_t pitchee_realtime_f0_t;
-typedef struct pitchee_realtime_resonance_t pitchee_realtime_resonance_t;
+typedef struct pitchee_realtime_scores_t pitchee_realtime_scores_t;
 typedef struct pitchee_spectrum_t pitchee_spectrum_t;
 
 typedef enum pitchee_status_t {
@@ -86,10 +86,21 @@ typedef void (*pitchee_progress_callback_t)(
     void* user_data
 );
 
+/*
+ * Zero values select the Core defaults:
+ * min_f0_hz=75, max_f0_hz=600, min_confidence=0.9.
+ */
+typedef struct pitchee_f0_thresholds_t {
+    float min_f0_hz;
+    float max_f0_hz;
+    float min_confidence;
+    int32_t reserved;
+} pitchee_f0_thresholds_t;
+
 typedef struct pitchee_realtime_f0_options_t {
     int32_t context_samples;
     int32_t hop_samples;
-    int32_t reserved;
+    pitchee_f0_thresholds_t thresholds;
 } pitchee_realtime_f0_options_t;
 
 typedef struct pitchee_f0_frame_t {
@@ -105,29 +116,24 @@ typedef void (*pitchee_f0_frame_callback_t)(
     void* user_data
 );
 
-typedef struct pitchee_realtime_resonance_options_t {
+typedef struct pitchee_realtime_scores_options_t {
     int32_t context_samples;
     int32_t hop_samples;
-    const char* vowel;
-    int32_t formant_window_samples;
-    int32_t reserved;
-} pitchee_realtime_resonance_options_t;
+    pitchee_f0_thresholds_t thresholds;
+} pitchee_realtime_scores_options_t;
 
-typedef struct pitchee_resonance_frame_t {
+typedef struct pitchee_realtime_scores_frame_t {
     double timestamp_seconds;
+    float vfp_standard_score;
+    float naturalness_score;
     float f0_hz;
     float f0_confidence;
-    float f1_hz;
-    float f2_hz;
-    float f3_hz;
-    float f4_hz;
-    float resonance_score;
-    const char* vowel;
     int32_t voiced;
-} pitchee_resonance_frame_t;
+    int32_t reserved;
+} pitchee_realtime_scores_frame_t;
 
-typedef void (*pitchee_resonance_frame_callback_t)(
-    const pitchee_resonance_frame_t* frame,
+typedef void (*pitchee_realtime_scores_callback_t)(
+    const pitchee_realtime_scores_frame_t* frame,
     void* user_data
 );
 
@@ -168,7 +174,7 @@ typedef void (*pitchee_spectrum_callback_t)(
 typedef struct pitchee_analyzer_options_t {
     int32_t intra_op_threads;
     int32_t use_coreml;
-    int32_t reserved;
+    pitchee_f0_thresholds_t thresholds;
 } pitchee_analyzer_options_t;
 
 typedef struct pitchee_composite_score_t {
@@ -272,31 +278,31 @@ PITCHEE_API void pitchee_realtime_f0_reset(pitchee_realtime_f0_t* stream);
 
 PITCHEE_API void pitchee_realtime_f0_destroy(pitchee_realtime_f0_t* stream);
 
-PITCHEE_API pitchee_status_t pitchee_realtime_resonance_create(
+PITCHEE_API pitchee_status_t pitchee_realtime_scores_create(
     pitchee_analyzer_t* analyzer,
-    const pitchee_realtime_resonance_options_t* options,
-    pitchee_realtime_resonance_t** out_stream,
+    const pitchee_realtime_scores_options_t* options,
+    pitchee_realtime_scores_t** out_stream,
     char* error_message,
     size_t error_message_capacity
 );
 
-PITCHEE_API pitchee_status_t pitchee_realtime_resonance_process(
-    pitchee_realtime_resonance_t* stream,
+PITCHEE_API pitchee_status_t pitchee_realtime_scores_process(
+    pitchee_realtime_scores_t* stream,
     const float* samples,
     size_t sample_count,
-    pitchee_resonance_frame_callback_t frame_callback,
+    pitchee_realtime_scores_callback_t frame_callback,
     void* user_data,
     size_t* out_frame_count,
     char* error_message,
     size_t error_message_capacity
 );
 
-PITCHEE_API void pitchee_realtime_resonance_reset(
-    pitchee_realtime_resonance_t* stream
+PITCHEE_API void pitchee_realtime_scores_reset(
+    pitchee_realtime_scores_t* stream
 );
 
-PITCHEE_API void pitchee_realtime_resonance_destroy(
-    pitchee_realtime_resonance_t* stream
+PITCHEE_API void pitchee_realtime_scores_destroy(
+    pitchee_realtime_scores_t* stream
 );
 
 PITCHEE_API pitchee_status_t pitchee_spectrum_create(
