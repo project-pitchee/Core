@@ -277,10 +277,15 @@ models/
 Pass that directory to `pitchee_analyzer_create()`. The library does not search
 an app bundle and does not download models automatically.
 
-Android ncnn uses FP32 weights. ECAPA features are normalized to 150 frames,
-with zero-padding for shorter windows and truncation for longer windows. The
-fixed-window SwiftF0 STFT, ECAPA mask, and pitch decode steps use lightweight
-custom ncnn layers registered by PitcheeCore.
+Android ncnn uses FP16 storage for `ECAPA.ncnn.bin`; the other ncnn models
+remain FP32. ncnn expands the ECAPA FP16 weights to FP32 for computation, so
+this is storage compression rather than FP16 arithmetic. ECAPA features are
+normalized to 150 frames, with zero-padding for shorter windows and truncation
+for longer windows. The fixed-window SwiftF0 STFT, ECAPA mask, and pitch decode
+steps use lightweight custom ncnn layers registered by PitcheeCore.
+
+See [`ECAPA_FP16_VALIDATION.md`](ECAPA_FP16_VALIDATION.md) for the Android
+arm64 accuracy and package-size comparison.
 
 ## Testing
 

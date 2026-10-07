@@ -689,9 +689,14 @@ FP32 权重。`ECAPA.onnx` 当前仍为 FP16 权重，用于控制移动端包�
 `.ncnn.param/bin` 是 Android ncnn-only 构建的必需模型。桌面构建仍可只放置
 `.onnx` 文件并使用 ONNX Runtime。
 
-Android ncnn 路径使用固定 FP32 权重。ECAPA 输入统一为 150 帧：短窗口补零、长
-窗口截断，避免 ncnn ARM 在动态时间长度下触发 Concat 分配问题。SwiftF0 的固定
-STFT、ECAPA mask 和 pitch decode 由 Core 注册的轻量 ncnn custom layer 实现。
+Android ncnn 路径中，`ECAPA.ncnn.bin` 使用 FP16 存储；其余 ncnn 模型仍为
+FP32。ncnn 加载时需要把 FP16 权重展开为 FP32 参与计算，因此这是存储压缩，
+不是 FP16 推理。ECAPA 输入统一为 150 帧：短窗口补零、长窗口截断，避免 ncnn
+ARM 在动态时间长度下触发 Concat 分配问题。SwiftF0 的固定 STFT、ECAPA mask
+和 pitch decode 由 Core 注册的轻量 ncnn custom layer 实现。
+
+ECAPA FP16 的 Android arm64 验证结果见
+[`docs/ECAPA_FP16_VALIDATION.md`](docs/ECAPA_FP16_VALIDATION.md)。
 
 ## 线程与生命周期
 
