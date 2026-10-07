@@ -129,6 +129,28 @@ cmake -S . -B build-android -G Ninja \
   -DPITCHEE_ORT_LIBRARY="$PWD/third_party/onnxruntime-android/jni/arm64-v8a/libonnxruntime.so"
 ```
 
+Android 固定使用 ncnn-only，不链接 ONNX Runtime。下载与 CMake 同版本的
+ncnn Android 发布包，并传入 `arm64-v8a` 的 include/lib 目录：
+
+<https://github.com/Tencent/ncnn/releases>
+
+```bash
+cmake -S . -B build-android-ncnn -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
+  -DANDROID_ABI=arm64-v8a \
+  -DANDROID_PLATFORM=android-24 \
+  -DPITCHEE_BUILD_CLI=OFF \
+  -DPITCHEE_ENABLE_ORT=OFF \
+  -DPITCHEE_ENABLE_NCNN=ON \
+  -DPITCHEE_NCNN_INCLUDE_DIR="$PWD/third_party/ncnn-android/arm64-v8a/include" \
+  -DPITCHEE_NCNN_LIBRARY="$PWD/third_party/ncnn-android/arm64-v8a/lib/libncnn.a"
+
+cmake --build build-android-ncnn -j 8
+```
+
+Android 构建会强制关闭 `PITCHEE_ENABLE_ORT`，所有六个模型必须提供对应的
+`.ncnn.param/bin`。桌面端仍可使用 ONNX Runtime 构建。
+
 iOS：
 
 ```bash
@@ -636,6 +658,18 @@ base_score = final_score = clamp(
 ```text
 models/
   SileroVAD.onnx
+  SileroVAD.ncnn.param
+  SileroVAD.ncnn.bin
+  ECAPAFrontend.ncnn.param
+  ECAPAFrontend.ncnn.bin
+  ECAPA.ncnn.param
+  ECAPA.ncnn.bin
+  VFPHead.ncnn.param
+  VFPHead.ncnn.bin
+  SwiftF0.ncnn.param
+  SwiftF0.ncnn.bin
+  Naturalness.ncnn.param
+  Naturalness.ncnn.bin
   ECAPAFrontend.onnx
   ECAPA.onnx
   VFPHead.onnx
@@ -651,6 +685,13 @@ models/
 FP32 权重。`ECAPA.onnx` 当前仍为 FP16 权重，用于控制移动端包体和内存占用。
 `ECAPAFrontend.onnx` 和 `ECAPA.onnx` 的时间维是动态的，因此 VAD 短语音段
 可以按原长度直接推理，不需要补齐到 1.515 秒。
+
+`.ncnn.param/bin` 是 Android ncnn-only 构建的必需模型。桌面构建仍可只放置
+`.onnx` 文件并使用 ONNX Runtime。
+
+Android ncnn 路径使用固定 FP32 权重。ECAPA 输入统一为 150 帧：短窗口补零、长
+窗口截断，避免 ncnn ARM 在动态时间长度下触发 Concat 分配问题。SwiftF0 的固定
+STFT、ECAPA mask 和 pitch decode 由 Core 注册的轻量 ncnn custom layer 实现。
 
 ## 线程与生命周期
 

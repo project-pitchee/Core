@@ -1,0 +1,26 @@
+7767517
+24 27
+Input            waveforms                0 1 waveforms
+MemoryData       /Constant_13_output_0    0 1 /Constant_13_output_0 0=1
+MemoryData       /Constant_15_output_0    0 1 /Constant_15_output_0 0=2
+MemoryData       /Constant_17_output_0    0 1 /Constant_17_output_0 0=1
+Padding          /Pad_static              1 1 waveforms /Unsqueeze_output_0 0=0 1=0 2=200 3=200 4=0 5=0.000000e+00 7=0 8=0
+Split            splitncnn_0              1 2 /Unsqueeze_output_0 /Unsqueeze_output_0_splitncnn_0 /Unsqueeze_output_0_splitncnn_1
+Convolution1D    /Conv                    1 1 /Unsqueeze_output_0_splitncnn_1 /Conv_output_0 0=201 1=400 2=1 3=160 4=0 14=0 5=0 6=80400
+Convolution1D    /Conv_1                  1 1 /Unsqueeze_output_0_splitncnn_0 /Conv_1_output_0 0=201 1=400 2=1 3=160 4=0 14=0 5=0 6=80400
+PitcheeSquare    /Pow                     1 1 /Conv_output_0 /Pow_output_0
+PitcheeSquare    /Pow_1                   1 1 /Conv_1_output_0 /Pow_1_output_0
+BinaryOp         /Add                     2 1 /Pow_output_0 /Pow_1_output_0 /Add_output_0 0=0
+Permute          /Transpose_1             1 1 /Add_output_0 /Transpose_1_output_0 0=1
+InnerProduct     /MatMul                  1 1 /Transpose_1_output_0 /MatMul_output_0 0=80 1=0 2=16080
+Clip             /Clip                    1 1 /MatMul_output_0 /Clip_output_0 0=1.000000e-10 1=3.402823e+38
+UnaryOp          /Log                     1 1 /Clip_output_0 /Log_output_0 0=8
+BinaryOp         /Div                     2 1 /Log_output_0 /Constant_13_output_0 /Div_output_0 0=3
+BinaryOp         /Mul                     1 1 /Div_output_0 /Mul_output_0 0=2 1=1 2=1.000000e+01
+Split            splitncnn_1              1 2 /Mul_output_0 /Mul_output_0_splitncnn_0 /Mul_output_0_splitncnn_1
+Reduction        /ReduceMax               2 1 /Mul_output_0_splitncnn_1 /Constant_15_output_0 /ReduceMax_output_0 0=4 1=0 -23303=2,-2,-1 4=1 5=1
+BinaryOp         /Sub                     1 1 /ReduceMax_output_0 /Sub_output_0 0=1 1=1 2=8.000000e+01
+BinaryOp         /Max                     2 1 /Mul_output_0_splitncnn_0 /Sub_output_0 /Max_output_0 0=4
+Split            splitncnn_2              1 2 /Max_output_0 /Max_output_0_splitncnn_0 /Max_output_0_splitncnn_1
+Reduction        /ReduceMean              2 1 /Max_output_0_splitncnn_1 /Constant_17_output_0 /ReduceMean_output_0 0=3 1=0 -23303=1,0 4=1 5=1
+BinaryOp         /Sub_1                   2 1 /Max_output_0_splitncnn_0 /ReduceMean_output_0 features 0=1

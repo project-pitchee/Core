@@ -8,3 +8,10 @@ compile_commands.json
 *.lib
 *.a
 *.pdb
+platform/android/benchmark/.gradle/
+platform/android/benchmark/.idea/
+platform/android/benchmark/local.properties
+platform/android/benchmark/app/.cxx/
+platform/android/benchmark/app/src/main/assets/models/
+platform/android/benchmark/app/src/main/jniLibs/arm64-v8a/libonnxruntime.so
+!platform/android/benchmark/app/src/main/jniLibs/arm64-v8a/libomp.so

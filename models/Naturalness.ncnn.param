@@ -1,0 +1,15 @@
+7767517
+13 13
+Input            features                 0 1 features
+MemoryData       feature_mean             0 1 feature_mean 0=384
+MemoryData       feature_scale            0 1 feature_scale 0=384
+MemoryData       hundred                  0 1 hundred 0=1
+MemoryData       intercept                0 1 intercept 0=1
+MemoryData       one                      0 1 one 0=1
+BinaryOp         centered                 2 1 features feature_mean centered 0=1
+BinaryOp         standardized             2 1 centered feature_scale standardized 0=3
+InnerProduct     weighted                 1 1 standardized weighted 0=1 1=0 2=384
+BinaryOp         logit                    2 1 weighted intercept logit 0=0
+Sigmoid          pressed_probability      1 1 logit pressed_probability
+BinaryOp         naturalness_ratio        2 1 one pressed_probability naturalness_ratio 0=1
+BinaryOp         naturalness_score        2 1 naturalness_ratio hundred naturalness_score 0=2

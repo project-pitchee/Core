@@ -1,5 +1,5 @@
 {
-  "modelVersion": "2026-10-f1",
+  "modelVersion": "2026-10-ncnn",
   "files": {
     "ECAPA.onnx": "37779fcd2ff869d709dd474396df441fead9788a17d354be6827ae52fc1f9a75",
     "ECAPAFrontend.onnx": "76fad551184804d1d41ea3c8444952197edb332253e06cffd9244cb535828e09",

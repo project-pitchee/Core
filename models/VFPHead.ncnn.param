@@ -1,0 +1,23 @@
+7767517
+21 23
+Input            embeddings               0 1 embeddings
+Split            splitncnn_input0         1 3 embeddings embeddings_splitncnn_0 embeddings_splitncnn_1 embeddings_splitncnn_2
+MemoryData       /Constant_output_0       0 1 /Constant_output_0 0=1
+MemoryData       mean                     0 1 mean 0=192
+MemoryData       std                      0 1 std 0=192
+Reduction        /ReduceL2                2 1 embeddings_splitncnn_2 /Constant_output_0 /ReduceL2_output_0 0=8 1=0 -23303=1,2 4=1 5=1
+Clip             /Clip                    1 1 /ReduceL2_output_0 /Clip_output_0 0=1.000000e-12 1=3.402823e+38
+BinaryOp         /Div                     2 1 embeddings_splitncnn_0 /Clip_output_0 /Div_output_0 0=3
+BinaryOp         /Sub                     2 1 /Div_output_0 mean /Sub_output_0 0=1
+BinaryOp         /Div_1                   2 1 /Sub_output_0 std /Div_1_output_0 0=3
+InnerProduct     /head/network/network.0/Gemm 1 1 /Div_1_output_0 /head/network/network.0/Gemm_output_0 0=512 1=1 2=98304
+ReLU             /head/network/network.1/Relu 1 1 /head/network/network.0/Gemm_output_0 /head/network/network.1/Relu_output_0
+InnerProduct     /head/network/network.2/Gemm 1 1 /head/network/network.1/Relu_output_0 /head/network/network.2/Gemm_output_0 0=512 1=1 2=262144
+ReLU             /head/network/network.3/Relu 1 1 /head/network/network.2/Gemm_output_0 /head/network/network.3/Relu_output_0
+InnerProduct     /head/network/network.4/Gemm 1 1 /head/network/network.3/Relu_output_0 /head/network/network.4/Gemm_output_0 0=512 1=1 2=262144
+ReLU             /head/network/network.5/Relu 1 1 /head/network/network.4/Gemm_output_0 /head/network/network.5/Relu_output_0
+InnerProduct     /head/network/network.6/Gemm 1 1 /head/network/network.5/Relu_output_0 /head/network/network.6/Gemm_output_0 0=512 1=1 2=262144
+ReLU             /head/network/network.7/Relu 1 1 /head/network/network.6/Gemm_output_0 /head/network/network.7/Relu_output_0
+InnerProduct     /head/network/network.8/Gemm 1 1 /head/network/network.7/Relu_output_0 /head/network/network.8/Gemm_output_0 0=1 1=1 2=512
+Squeeze          /head/Squeeze            1 1 /head/network/network.8/Gemm_output_0 /head/Squeeze_output_0 -23303=1,0
+Sigmoid          /Sigmoid                 1 1 /head/Squeeze_output_0 probabilities

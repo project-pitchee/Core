@@ -23,6 +23,12 @@ public:
     ) const;
 
 private:
+    VadResult detect_light(
+        const std::vector<float>& samples,
+        const std::function<void(size_t, size_t)>& progress
+    ) const;
+
+    bool lightweight_ = false;
     std::unique_ptr<OrtModel> model_;
 };
 

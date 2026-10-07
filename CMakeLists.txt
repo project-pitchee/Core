@@ -17,9 +17,21 @@ option(PITCHEE_BUILD_SHARED "Build pitchee_core as a shared library" ON)
 option(PITCHEE_BUILD_CLI "Build the desktop validation CLI" ON)
 option(PITCHEE_BUILD_TESTS "Build core tests" ON)
 option(PITCHEE_ENABLE_ORT "Enable ONNX Runtime model inference" ON)
+option(PITCHEE_ENABLE_NCNN "Enable the Android ncnn model backend" OFF)
+option(PITCHEE_NCNN_VULKAN "Enable ncnn Vulkan GPU support" OFF)
 set(PITCHEE_ORT_ROOT "" CACHE PATH "Directory containing ONNX Runtime headers and libraries")
 set(PITCHEE_ORT_INCLUDE_DIR "" CACHE PATH "Explicit ONNX Runtime include directory")
 set(PITCHEE_ORT_LIBRARY "" CACHE FILEPATH "Explicit ONNX Runtime library path")
+set(PITCHEE_NCNN_ROOT "" CACHE PATH "Directory containing ncnn headers and libraries")
+set(PITCHEE_NCNN_INCLUDE_DIR "" CACHE PATH "Explicit ncnn include directory")
+set(PITCHEE_NCNN_LIBRARY "" CACHE FILEPATH "Explicit ncnn library path")
+
+if(ANDROID)
+    set(PITCHEE_ENABLE_ORT OFF CACHE BOOL "Android builds are ncnn-only" FORCE)
+    if(NOT PITCHEE_ENABLE_NCNN)
+        message(FATAL_ERROR "Android builds require PITCHEE_ENABLE_NCNN=ON")
+    endif()
+endif()
 
 if(PITCHEE_BUILD_SHARED)
     set(PITCHEE_LIBRARY_TYPE SHARED)
@@ -105,6 +117,70 @@ if(PITCHEE_ENABLE_ORT)
     else()
         message(WARNING "PitcheeCore: ONNX Runtime not found; model inference returns PITCHEE_ERROR_ORT_UNAVAILABLE")
     endif()
+endif()
+
+if(PITCHEE_ENABLE_NCNN)
+    if(NOT ANDROID)
+        message(FATAL_ERROR "PITCHEE_ENABLE_NCNN is currently Android-only")
+    endif()
+
+    if(PITCHEE_NCNN_INCLUDE_DIR)
+        set(PITCHEE_NCNN_INCLUDE "${PITCHEE_NCNN_INCLUDE_DIR}")
+    else()
+        find_path(PITCHEE_NCNN_INCLUDE ncnn/net.h
+            HINTS
+                "${PITCHEE_NCNN_ROOT}/include"
+                "$ENV{NCNN_ROOT}/include"
+        )
+    endif()
+
+    if(PITCHEE_NCNN_LIBRARY)
+        set(PITCHEE_NCNN_LIB "${PITCHEE_NCNN_LIBRARY}")
+    else()
+        find_library(PITCHEE_NCNN_LIB
+            NAMES ncnn
+            HINTS
+                "${PITCHEE_NCNN_ROOT}/lib"
+        )
+    endif()
+
+    if(NOT PITCHEE_NCNN_INCLUDE OR NOT PITCHEE_NCNN_LIB)
+        message(FATAL_ERROR "ncnn headers or library were not found")
+    endif()
+
+    find_library(ANDROID_LOG_LIBRARY log REQUIRED)
+    find_library(ANDROID_LIBRARY android REQUIRED)
+    find_library(DL_LIBRARY dl REQUIRED)
+    target_include_directories(pitchee_core PRIVATE "${PITCHEE_NCNN_INCLUDE}")
+    target_sources(pitchee_core PRIVATE src/ncnn_pitchee_layers.cpp)
+    target_compile_options(pitchee_core PRIVATE -fno-rtti)
+    target_link_libraries(pitchee_core PRIVATE
+        "${PITCHEE_NCNN_LIB}"
+        "${ANDROID_LOG_LIBRARY}"
+        "${ANDROID_LIBRARY}"
+        "${DL_LIBRARY}"
+        -fopenmp
+    )
+    target_compile_definitions(pitchee_core PRIVATE PITCHEE_ENABLE_NCNN=1)
+    if(PITCHEE_NCNN_VULKAN)
+        get_filename_component(PITCHEE_NCNN_LIBRARY_DIR "${PITCHEE_NCNN_LIB}" DIRECTORY)
+        find_library(VULKAN_LIBRARY vulkan REQUIRED)
+        set(PITCHEE_NCNN_VULKAN_DEPS
+            "${PITCHEE_NCNN_LIBRARY_DIR}/libglslang.a"
+            "${PITCHEE_NCNN_LIBRARY_DIR}/libSPIRV.a"
+            "${PITCHEE_NCNN_LIBRARY_DIR}/libMachineIndependent.a"
+            "${PITCHEE_NCNN_LIBRARY_DIR}/libGenericCodeGen.a"
+            "${PITCHEE_NCNN_LIBRARY_DIR}/libOSDependent.a"
+            "${PITCHEE_NCNN_LIBRARY_DIR}/libglslang-default-resource-limits.a"
+            "${VULKAN_LIBRARY}"
+        )
+        target_link_libraries(pitchee_core PRIVATE ${PITCHEE_NCNN_VULKAN_DEPS})
+        target_compile_definitions(pitchee_core PRIVATE PITCHEE_NCNN_VULKAN=1)
+        message(STATUS "PitcheeCore: ncnn Vulkan support enabled")
+    endif()
+    message(STATUS "PitcheeCore: Android ncnn backend enabled")
+    message(STATUS "  include: ${PITCHEE_NCNN_INCLUDE}")
+    message(STATUS "  library: ${PITCHEE_NCNN_LIB}")
 endif()
 
 if(APPLE)

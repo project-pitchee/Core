@@ -1,0 +1,48 @@
+7767517
+46 55
+Input                    input                    0 1 input
+Input                    state                    0 1 state
+Split                    splitncnn_input1         1 2 state state_splitncnn_0 state_splitncnn_1
+MemoryData               val_30                   0 1 val_30 0=1
+Padding                  Pad_0                    1 1 input _v_49 3=64 4=2
+ExpandDims               Unsqueeze_1              2 1 _v_49 val_30 _v_52 -23303=1,0
+Convolution1D            Conv_2                   1 1 _v_52 _v_54 0=258 1=256 3=128 6=66048
+Split                    splitncnn_0              1 2 _v_54 _v_54_splitncnn_0 _v_54_splitncnn_1
+Crop                     Slice_3                  3 1 _v_54_splitncnn_1 val_30 val_30 _v_56 -23309=1,0 -23310=1,129 -23311=1,0
+Split                    splitncnn_1              1 2 _v_56 _v_56_splitncnn_0 _v_56_splitncnn_1
+Crop                     Slice_4                  3 1 _v_54_splitncnn_0 val_30 val_30 _v_61 -23309=1,129 -23310=1,2147483647 -23311=1,0
+Split                    splitncnn_2              1 2 _v_61 _v_61_splitncnn_0 _v_61_splitncnn_1
+BinaryOp                 Pow_5_mul                2 1 _v_56_splitncnn_1 _v_56_splitncnn_0 _v_66 0=2
+BinaryOp                 Pow_6_mul                2 1 _v_61_splitncnn_1 _v_61_splitncnn_0 _v_68 0=2
+BinaryOp                 Add_7                    2 1 _v_66 _v_68 _v_70
+UnaryOp                  Sqrt_8                   1 1 _v_70 _v_71 0=5
+Convolution1D            Conv_9                   1 1 _v_71 _v_75 0=128 1=3 4=1 5=1 6=49536 9=1
+Convolution1D            Conv_11                  1 1 _v_75 _v_79 0=64 1=3 3=2 4=1 5=1 6=24576 9=1
+Convolution1D            Conv_13                  1 1 _v_79 _v_83 0=64 1=3 3=2 4=1 5=1 6=12288 9=1
+Convolution1D            Conv_15                  1 1 _v_83 _v_87 0=128 1=3 4=1 5=1 6=24576 9=1
+Crop                     Gather_17                1 1 _v_87 _v_88 -23309=1,0 -23310=1,1 -23311=1,1
+Crop                     Gather_18                1 1 state_splitncnn_1 _v_90 -23309=1,0 -23310=1,1 -23311=1,0
+Crop                     Gather_19                1 1 state_splitncnn_0 _v_93 -23309=1,1 -23310=1,2 -23311=1,0
+InnerProduct             Gemm_20                  1 1 _v_90 _v_96 0=512 1=1 2=65536
+InnerProduct             Gemm_21                  1 1 _v_88 _v_99 0=512 1=1 2=65536
+BinaryOp                 Add_22                   2 1 _v_96 _v_99 _v_102
+Slice                    Split_23                 1 4 _v_102 _v_103 _v_104 _v_105 _v_106 -23300=4,-233,-233,-233,-233
+Sigmoid                  Sigmoid_24               1 1 _v_103 _v_107
+Sigmoid                  Sigmoid_25               1 1 _v_104 _v_108
+UnaryOp                  Tanh_26                  1 1 _v_105 _v_109 0=16
+Sigmoid                  Sigmoid_27               1 1 _v_106 _v_110
+BinaryOp                 Mul_28                   2 1 _v_108 _v_93 _v_111 0=2
+BinaryOp                 Mul_29                   2 1 _v_107 _v_109 _v_112 0=2
+BinaryOp                 Add_30                   2 1 _v_111 _v_112 _v_113
+Split                    splitncnn_3              1 2 _v_113 _v_113_splitncnn_0 _v_113_splitncnn_1
+UnaryOp                  Tanh_31                  1 1 _v_113_splitncnn_1 _v_114 0=16
+BinaryOp                 Mul_32                   2 1 _v_110 _v_114 _v_115 0=2
+Split                    splitncnn_4              1 2 _v_115 _v_115_splitncnn_0 _v_115_splitncnn_1
+ExpandDims               Unsqueeze_33             1 1 _v_115_splitncnn_1 _v_116 -23303=1,-1
+ExpandDims               Unsqueeze_34             1 1 _v_115_splitncnn_0 _v_118 -23303=1,0
+ExpandDims               Unsqueeze_35             1 1 _v_113_splitncnn_0 _v_120 -23303=1,0
+Concat                   Concat_36                2 1 _v_118 _v_120 stateN
+ReLU                     Relu_37                  1 1 _v_116 _v_123
+Convolution1D            Conv_38                  1 1 _v_123 _v_127 0=1 1=1 5=1 6=128 9=4
+Squeeze                  Squeeze_40               2 1 _v_127 val_30 _v_128 -23303=1,0
+Reduction                ReduceMean_41            2 1 _v_128 val_30 output 0=3 1=0 -23303=1,0 4=1 5=1

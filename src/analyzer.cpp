@@ -226,6 +226,8 @@ pitchee::PitchResult analyze_pitch(
 
 
 
+pitchee::Tensor canonicalize_ecapa_features(pitchee::Tensor features);
+
 std::vector<std::vector<float>> embed_waveforms(
     pitchee::OrtModel& frontend,
     pitchee::OrtModel& encoder,
@@ -274,6 +276,7 @@ std::vector<std::vector<float>> embed_waveforms(
             }
 
             auto features = frontend.run({{"waveforms", std::move(input)}});
+            features = canonicalize_ecapa_features(std::move(features));
             auto batch_embeddings = encoder.run(
                 {{"features", std::move(features)}}
             );
@@ -297,6 +300,45 @@ std::vector<std::vector<float>> embed_waveforms(
         }
     }
     return embeddings;
+}
+
+pitchee::Tensor canonicalize_ecapa_features(pitchee::Tensor features) {
+    constexpr int64_t target_frames = 150;
+    constexpr int64_t feature_count = 80;
+    if (features.shape.size() != 3
+        || features.shape[0] <= 0
+        || features.shape[1] == target_frames
+        || features.shape[2] != feature_count) {
+        return features;
+    }
+
+    const int64_t batch = features.shape[0];
+    const int64_t source_frames = features.shape[1];
+    const int64_t copy_frames = std::min(source_frames, target_frames);
+    // The ncnn ECAPA export uses a fixed-width attention mask. Keep every
+    // batch at the same frame count so short tails pad and long tails crop.
+    pitchee::Tensor resized;
+    resized.shape = {batch, target_frames, feature_count};
+    resized.values.assign(
+        static_cast<size_t>(batch * target_frames * feature_count),
+        0.0f
+    );
+    for (int64_t batch_index = 0; batch_index < batch; ++batch_index) {
+        const auto source_start = features.values.begin()
+            + static_cast<std::ptrdiff_t>(
+                batch_index * source_frames * feature_count
+            );
+        auto target_start = resized.values.begin()
+            + static_cast<std::ptrdiff_t>(
+                batch_index * target_frames * feature_count
+            );
+        std::copy(
+            source_start,
+            source_start + static_cast<std::ptrdiff_t>(copy_frames * feature_count),
+            target_start
+        );
+    }
+    return resized;
 }
 
 std::vector<double> classify_embeddings(
