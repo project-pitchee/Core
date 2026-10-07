@@ -1,4 +1,4 @@
-#include "pitchee/pitchee.h"
+#include "pitchee/spectrum.h"
 
 #include <algorithm>
 #include <cmath>
@@ -313,11 +313,9 @@ pitchee_status_t pitchee_spectrum_process(
     size_t sample_count,
     pitchee_spectrum_callback_t frame_callback,
     void* user_data,
-    size_t* out_frame_count,
     char* error_message,
     size_t error_message_capacity
 ) {
-    if (out_frame_count) *out_frame_count = 0;
     if (!spectrum || (!samples && sample_count > 0)) {
         set_error(error_message, error_message_capacity, "invalid spectrum argument");
         return PITCHEE_ERROR_INVALID_ARGUMENT;
@@ -326,7 +324,6 @@ pitchee_status_t pitchee_spectrum_process(
 
     try {
         size_t read_offset = 0;
-        size_t frame_count = 0;
         while (read_offset < sample_count) {
             const size_t block = std::min(
                 sample_count - read_offset,
@@ -354,7 +351,6 @@ pitchee_status_t pitchee_spectrum_process(
                 spectrum->next_frame_end_sample += static_cast<size_t>(
                     spectrum->hop_samples
                 );
-                ++frame_count;
             }
 
             if (spectrum->buffer.size() > static_cast<size_t>(spectrum->fft_size)) {
@@ -367,7 +363,6 @@ pitchee_status_t pitchee_spectrum_process(
                 spectrum->buffer_start_sample += drop;
             }
         }
-        if (out_frame_count) *out_frame_count = frame_count;
         return PITCHEE_SUCCESS;
     } catch (const std::exception& error) {
         set_error(error_message, error_message_capacity, error.what());

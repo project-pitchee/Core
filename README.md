@@ -18,7 +18,7 @@ PitcheeCore 是一个独立、跨平台的 C++17 语音预测库。输入一段�
 - VFP 语音顺性别女性概率分析
 - Naturalness 语音自然度分析
 - SwiftF0 基频分析
-- VFP / Naturalness 滑动窗口实时分析
+- SwiftF0 实时 F0 流
 - 自定义综合分计算方法
 - UTF-8 JSON 数据输出
 
@@ -162,15 +162,16 @@ Core 的 16 kHz 重采样与 FFmpeg `swresample` 的默认参数对齐，并在�
 #include <stdio.h>
 
 int main(void) {
-    pitchee_analyzer_options_t options = {
-        2, 0, {75.0f, 600.0f, 0.9f, 0}
-    };
     pitchee_analyzer_t* analyzer = NULL;
     char error[1024] = {0};
 
     pitchee_status_t status = pitchee_analyzer_create(
         "./models",
-        &options,
+        2,       /* ONNX Runtime intra-op threads */
+        0,       /* use CoreML */
+        75.0f,   /* min F0 Hz */
+        600.0f,  /* max F0 Hz */
+        0.9f,    /* min SwiftF0 confidence */
         &analyzer,
         error,
         sizeof(error)
@@ -181,7 +182,7 @@ int main(void) {
     }
 
     char* json = NULL;
-    status = pitchee_analyzer_analyze_wav_file(
+    status = pitchee_analyze_wav_file(
         analyzer,
         "/path/to/audio.wav",
         PITCHEE_SCORE_PROFILE_FEMINIZATION,
@@ -206,7 +207,7 @@ int main(void) {
 
 ### 详细进度回调
 
-旧版 `pitchee_phase_callback_t` 继续保留。需要细粒度进度时，使用：
+离线分析统一使用一个进度回调；不需要进度时传 `NULL`：
 
 ```c
 void progress_callback(const pitchee_progress_t* progress, void* user_data) {
@@ -234,7 +235,7 @@ void progress_callback(const pitchee_progress_t* progress, void* user_data) {
     (void)user_data;
 }
 
-status = pitchee_analyzer_analyze_wav_file_with_progress(
+status = pitchee_analyze_wav_file(
     analyzer,
     "/path/to/audio.wav",
     PITCHEE_SCORE_PROFILE_FEMINIZATION,
@@ -257,13 +258,11 @@ status = pitchee_analyzer_analyze_wav_file_with_progress(
 
 ```c
 pitchee_realtime_f0_t* f0_stream = NULL;
-pitchee_realtime_f0_options_t f0_options = {
-    5120, 256, {75.0f, 600.0f, 0.9f, 0}
-};
 
 pitchee_realtime_f0_create(
     analyzer,
-    &f0_options,
+    5120,
+    256,
     &f0_stream,
     error,
     sizeof(error)
@@ -283,7 +282,6 @@ pitchee_realtime_f0_process(
     sample_count,
     f0_callback,
     NULL,
-    NULL,
     error,
     sizeof(error)
 );
@@ -301,8 +299,8 @@ pitchee_realtime_f0_destroy(f0_stream);
 
 SwiftF0 每帧时间步长是 256 samples。Core 使用重叠上下文维持低频稳定性，
 并对重复帧按整数 sample index 去重。`voiced` 为 Core 的显示判定，当前要求
-置信度与 F0 必须通过该流配置的 `min_confidence`、`min_f0_hz` 和 `max_f0_hz`
-阈值。零值表示使用默认值 `0.9 / 75 / 600 Hz`。
+置信度与 F0 必须通过 analyzer 创建时配置的 `min_confidence`、`min_f0_hz`
+和 `max_f0_hz` 阈值。零值表示使用默认值 `0.9 / 75 / 600 Hz`。
 
 同一个实时流必须串行调用；不同流可以使用不同 analyzer。analyzer 的生命周期
 必须长于其创建的实时流。
@@ -312,9 +310,13 @@ SwiftF0 每帧时间步长是 256 samples。Core 使用重叠上下文维持低�
 Spectrum 是完全独立的接口，不需要 ONNX Runtime，也不需要 analyzer：
 
 ```c
+#include <pitchee/spectrum.h>
+```
+
+```c
 pitchee_spectrum_options_t options = {
     2048, 256, 40, 8000,
-    PITCHEE_SPECTRUM_DBFS, 0.65f, 0
+    PITCHEE_SPECTRUM_DBFS, 0.65f
 };
 pitchee_spectrum_t* spectrum = NULL;
 
@@ -339,7 +341,6 @@ pitchee_spectrum_process(
     samples,
     sample_count,
     spectrum_callback,
-    NULL,
     NULL,
     error,
     sizeof(error)
@@ -548,18 +549,21 @@ Core 不对语音段做拼接。长语音段按 1.515 秒窗口和 0.1 秒步长
 
 ## 综合分规则
 
-如果只需要最终分数，Core 提供三指标便捷接口：
+综合分接口是：
 
 ```c
-double final_score = pitchee_composite_score_value(
+pitchee_score_result_t score;
+pitchee_score(
     PITCHEE_SCORE_PROFILE_FEMINIZATION,
     vfp_standard_score,
     naturalness_score,
-    f0_hz
+    f0_hz,
+    &score
 );
 ```
 
-没有有效 F0 时，`f0_hz` 传 `NAN` 或 `<= 0`。
+最终分数读取 `score.final_score`。没有有效 F0 时，`f0_hz` 传 `NAN` 或
+`<= 0`。
 
 令：
 

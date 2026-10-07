@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
     PitcheeCore
-    VERSION 0.4.0
+    VERSION 0.5.0
     DESCRIPTION "Cross-platform on-device voice analysis core"
     LANGUAGES C CXX
 )
@@ -141,14 +141,11 @@ if(PITCHEE_BUILD_TESTS)
     target_link_libraries(pitchee_spectrum_test PRIVATE pitchee_core)
     add_test(NAME pitchee_spectrum_test COMMAND pitchee_spectrum_test)
 
-    add_executable(
-        pitchee_realtime_scores_test
-        tests/realtime_scores_test.cpp
-    )
-    target_link_libraries(pitchee_realtime_scores_test PRIVATE pitchee_core)
+    add_executable(pitchee_realtime_f0_test tests/realtime_f0_test.cpp)
+    target_link_libraries(pitchee_realtime_f0_test PRIVATE pitchee_core)
     add_test(
-        NAME pitchee_realtime_scores_test
-        COMMAND pitchee_realtime_scores_test
+        NAME pitchee_realtime_f0_test
+        COMMAND pitchee_realtime_f0_test
             "${CMAKE_CURRENT_SOURCE_DIR}/models"
     )
 

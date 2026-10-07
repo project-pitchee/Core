@@ -21,16 +21,15 @@ bool close(double left, double right, double tolerance = 1e-9) {
 }  // namespace
 
 int main() {
-    require(std::string(pitchee_core_version()) == "0.4.0", "version");
+    require(std::string(pitchee_version()) == "0.5.0", "version");
 
-    pitchee_composite_score_t score{};
+    pitchee_score_result_t score{};
     require(
-        pitchee_composite_score(
+        pitchee_score(
             PITCHEE_SCORE_PROFILE_FEMINIZATION,
             90.0,
             100.0,
             200.0,
-            1,
             &score
         )
             == PITCHEE_SUCCESS,
@@ -41,12 +40,11 @@ int main() {
     require(std::string(score.score_rule) == "pass_boost", "pass boost rule");
 
     require(
-        pitchee_composite_score(
+        pitchee_score(
             PITCHEE_SCORE_PROFILE_FEMINIZATION,
             70.0,
             20.0,
             180.0,
-            1,
             &score
         )
             == PITCHEE_SUCCESS,
@@ -60,12 +58,11 @@ int main() {
     );
 
     require(
-        pitchee_composite_score(
+        pitchee_score(
             PITCHEE_SCORE_PROFILE_FEMINIZATION,
             20.0,
             20.0,
             180.0,
-            1,
             &score
         )
             == PITCHEE_SUCCESS,
@@ -81,12 +78,11 @@ int main() {
     );
 
     require(
-        pitchee_composite_score(
+        pitchee_score(
             PITCHEE_SCORE_PROFILE_FEMINIZATION,
             63.0,
             90.0,
             0.0,
-            0,
             &score
         )
             == PITCHEE_SUCCESS,
@@ -96,37 +92,11 @@ int main() {
     require(std::string(score.score_rule) == "f0_unavailable", "no f0 rule");
 
     require(
-        close(
-            pitchee_composite_score_value(
-                PITCHEE_SCORE_PROFILE_FEMINIZATION,
-                90.0,
-                100.0,
-                200.0
-            ),
-            100.0
-        ),
-        "three-metric composite score"
-    );
-    require(
-        close(
-            pitchee_composite_score_value(
-                PITCHEE_SCORE_PROFILE_FEMINIZATION,
-                63.0,
-                90.0,
-                0.0
-            ),
-            63.0
-        ),
-        "three-metric f0 fallback"
-    );
-
-    require(
-        pitchee_composite_score(
+        pitchee_score(
             PITCHEE_SCORE_PROFILE_MASCULINIZATION,
             50.0,
             0.0,
             165.0,
-            1,
             &score
         ) == PITCHEE_SUCCESS,
         "masculinization pivot call"
@@ -142,12 +112,11 @@ int main() {
     );
 
     require(
-        pitchee_composite_score(
+        pitchee_score(
             PITCHEE_SCORE_PROFILE_MASCULINIZATION,
             30.0,
             100.0,
             120.0,
-            1,
             &score
         ) == PITCHEE_SUCCESS,
         "masculinization score call"
@@ -155,23 +124,29 @@ int main() {
     require(close(score.final_score, 81.0), "masculinization score");
     require(close(score.base_score, score.final_score), "base equals final");
 
-    const double naturalness_independent = pitchee_composite_score_value(
-        PITCHEE_SCORE_PROFILE_MASCULINIZATION,
-        30.0,
-        0.0,
-        120.0
+    pitchee_score_result_t naturalness_independent{};
+    require(
+        pitchee_score(
+            PITCHEE_SCORE_PROFILE_MASCULINIZATION,
+            30.0,
+            0.0,
+            120.0,
+            &naturalness_independent
+        ) == PITCHEE_SUCCESS,
+        "masculinization naturalness independent call"
     );
     require(
-        close(naturalness_independent, score.final_score),
+        close(naturalness_independent.final_score, score.final_score),
         "masculinization ignores naturalness"
     );
     require(
-        std::isnan(pitchee_composite_score_value(
+        pitchee_score(
             static_cast<pitchee_score_profile_t>(99),
             30.0,
             0.0,
-            120.0
-        )),
+            120.0,
+            &score
+        ) == PITCHEE_ERROR_INVALID_ARGUMENT,
         "invalid score profile"
     );
 

@@ -1,63 +1,78 @@
 # C ABI
 
-## Analyzer lifetime
+PitcheeCore `0.5.0` keeps the main ABI focused on four operations:
+
+1. Create one reusable analyzer.
+2. Analyze an audio buffer or WAV file.
+3. Run a realtime F0 stream.
+4. Calculate a composite score from three metrics.
+
+Spectrum has its own header and is independent of model loading.
 
 ```c
-pitchee_analyzer_options_t options = {
-    .intra_op_threads = 2,
-    .use_coreml = 0,
-    .thresholds = {75.0f, 600.0f, 0.9f, 0}
-};
+#include <pitchee/pitchee.h>
+#include <pitchee/spectrum.h>
+```
 
+## Analyzer lifetime
+
+Analyzer creation owns all common runtime settings and all ONNX Runtime sessions:
+
+```c
 pitchee_analyzer_t* analyzer = NULL;
 char error[1024] = {0};
 
 pitchee_status_t status = pitchee_analyzer_create(
     model_directory,
-    &options,
+    2,       /* intra_op_threads */
+    0,       /* use_coreml */
+    75.0f,   /* min_f0_hz */
+    600.0f,  /* max_f0_hz */
+    0.9f,    /* min SwiftF0 confidence */
     &analyzer,
     error,
     sizeof(error)
 );
 ```
 
-The analyzer owns every ONNX Runtime session. It is reusable across multiple
-audio buffers. Serialize calls on one analyzer, or create one analyzer per
-worker.
+Parameter rules:
+
+- `intra_op_threads <= 0` selects `2`.
+- `use_coreml == 0` disables CoreML; non-zero enables it.
+- `min_f0_hz <= 0` selects `75`.
+- `max_f0_hz <= 0` selects `600`.
+- `min_confidence <= 0` selects `0.9`.
+- Realtime F0 streams inherit these F0 thresholds.
+
+The analyzer is reusable across audio buffers. Calls on one analyzer must be
+serialized, or each worker should create its own analyzer.
 
 Destroy it with `pitchee_analyzer_destroy(analyzer)`.
 
-Every analysis call must explicitly pass either
-`PITCHEE_SCORE_PROFILE_FEMINIZATION` or
-`PITCHEE_SCORE_PROFILE_MASCULINIZATION`.
+## Score profile
 
-All SwiftF0-enabled options now carry:
+Every offline analysis and score call requires:
 
 ```c
-typedef struct pitchee_f0_thresholds_t {
-    float min_f0_hz;
-    float max_f0_hz;
-    float min_confidence;
-    int32_t reserved;
-} pitchee_f0_thresholds_t;
+PITCHEE_SCORE_PROFILE_FEMINIZATION
+PITCHEE_SCORE_PROFILE_MASCULINIZATION
 ```
 
-Zero values select `75 Hz / 600 Hz / 0.9`. The field is present in
-`pitchee_analyzer_options_t`, `pitchee_realtime_f0_options_t`, and
-`pitchee_realtime_scores_options_t`.
+The profile selects the composite scoring rule. It does not change the raw F0,
+VFP, or Naturalness model outputs.
 
-## Raw PCM input
+## Analyze PCM
 
 ```c
 char* json = NULL;
-status = pitchee_analyzer_analyze_pcm(
+status = pitchee_analyze_pcm(
     analyzer,
     samples,
     sample_count,
     sample_rate,
     channels,
     PITCHEE_SCORE_PROFILE_FEMINIZATION,
-    phase_callback,
+    progress_callback,
     user_data,
     &json,
     error,
@@ -68,31 +83,31 @@ status = pitchee_analyzer_analyze_pcm(
 - `samples` is Float32 PCM in `[-1, 1]`.
 - `sample_count` is the total number of float values across all channels.
 - `channels == 1` means mono; greater than one means interleaved.
-- The library resamples to 16 kHz and does not impose a maximum analysis duration.
-- Resampled audio is quantized to PCM16 to match the model training and server pipeline.
-- The result is UTF-8 JSON.
-- Release it with `pitchee_string_free(json)`.
+- The library resamples to 16 kHz and does not impose a maximum duration.
+- Resampled audio is quantized to PCM16 to match model training.
+- `progress_callback` can be `NULL`.
+- Release `json` with `pitchee_string_free(json)`.
 
-## Detailed progress
+`pitchee_progress_t` contains:
 
-Use the `_with_progress` variants when the caller needs more detail than the
-legacy four-value phase callback:
+| Field | Meaning |
+| --- | --- |
+| `stage` | A `pitchee_progress_stage_t` constant. |
+| `completed` | Completed units in the current stage. |
+| `total` | Total units in the current stage. |
+| `fraction` | Stage-local value in `[0, 1]`. |
+
+Stages cover loading, resampling, F0, VAD, VFP, Naturalness, scoring,
+serialization, and completion. Callbacks run synchronously.
+
+## Analyze WAV
 
 ```c
-void on_progress(const pitchee_progress_t* progress, void* user_data) {
-    if (progress->stage == PITCHEE_PROGRESS_STAGE_DETECTING_SPEECH) {
-        update_progress(progress->fraction);
-    }
-}
-
-status = pitchee_analyzer_analyze_pcm_with_progress(
+status = pitchee_analyze_wav_file(
     analyzer,
-    samples,
-    sample_count,
-    sample_rate,
-    channels,
+    wav_path,
     PITCHEE_SCORE_PROFILE_FEMINIZATION,
-    on_progress,
+    progress_callback,
     user_data,
     &json,
     error,
@@ -100,260 +115,123 @@ status = pitchee_analyzer_analyze_pcm_with_progress(
 );
 ```
 
-`pitchee_progress_t` contains:
-
-| Field | Meaning |
-| --- | --- |
-| `stage` | A `pitchee_progress_stage_t` enum constant. No stage strings are returned. |
-| `completed` | Completed units in the current stage. |
-| `total` | Total units in the current stage. |
-| `fraction` | Stage-local value in `[0, 1]`. |
-
-The stage constants are `LOADING_AUDIO`, `RESAMPLING_AUDIO`, `ANALYZING_F0`,
-`DETECTING_SPEECH`, `PREPARING_VFP_WINDOWS`, `EXTRACTING_VFP_EMBEDDINGS`,
-`CLASSIFYING_VFP_WINDOWS`, `PREPARING_NATURALNESS_WINDOWS`,
-`EXTRACTING_NATURALNESS_EMBEDDINGS`, `SCORING_NATURALNESS_WINDOWS`,
-`CALCULATING_SCORES`, `SERIALIZING_RESULT`, and `COMPLETED`. All constants use
-the `PITCHEE_PROGRESS_STAGE_` prefix.
-
-Callbacks run synchronously on the thread performing analysis. The same
-analyzer must not be used concurrently.
+PCM16, PCM32, and Float32 WAV files are supported. Compressed formats should be
+decoded by the platform and passed to `pitchee_analyze_pcm()`.
 
 ## Realtime F0
 
-Create one stream per microphone session:
-
 ```c
-pitchee_realtime_f0_options_t options = {
-    5120, 256, {75.0f, 600.0f, 0.9f, 0}
-};
 pitchee_realtime_f0_t* stream = NULL;
-
 pitchee_realtime_f0_create(
     analyzer,
-    &options,
+    5120,  /* context_samples; <= 0 uses 320 ms */
+    256,   /* hop_samples; <= 0 uses 16 ms */
     &stream,
     error,
     sizeof(error)
 );
-```
 
-`pitchee_realtime_f0_process()` accepts any number of 16 kHz mono Float32
-samples. It keeps the latest 320 ms context, runs SwiftF0 every 16 ms of new
-audio, and invokes the callback once per new F0 frame:
-
-```c
 void on_f0_frame(const pitchee_f0_frame_t* frame, void* user_data);
+
+pitchee_realtime_f0_process(
+    stream,
+    samples,
+    sample_count,
+    on_f0_frame,
+    user_data,
+    error,
+    sizeof(error)
+);
+
+pitchee_realtime_f0_reset(stream);
+pitchee_realtime_f0_destroy(stream);
 ```
 
-Each frame contains:
+Input is 16 kHz mono Float32 PCM. Each callback frame contains:
 
 | Field | Meaning |
 | --- | --- |
 | `timestamp_seconds` | Monotonic timestamp since the stream was reset. |
 | `f0_hz` | Raw SwiftF0 estimate. |
 | `confidence` | SwiftF0 confidence in `[0, 1]`. |
-| `voiced` | `1` when confidence and F0 pass the stream thresholds. |
+| `voiced` | `1` when the analyzer's F0 thresholds are satisfied. |
 
-The first callback occurs after the full context is available. Call
-`pitchee_realtime_f0_reset()` when starting a new recording without recreating
-the stream. The analyzer must outlive every stream created from it.
+The analyzer must outlive every stream created from it.
 
-## Realtime VFP and naturalness
-
-This stream emits one VFP and naturalness score after every full sliding model
-window. The default window is 1.515 s (`24240` samples) and the default update
-hop is 100 ms (`1600` samples). It reuses the analyzer's ECAPA, VFPHead, and
-Naturalness sessions. SwiftF0 runs on the incoming audio and gates the heavy
-score models: a window is scored only when at least one valid voiced F0 frame
-was observed.
-
-For low-latency UI, a 500 ms window (`8000` samples) is supported because the
-models are also used for short speech segments without padding. It produces the
-first score after roughly 0.5 s but is less stable than the full 1.515 s mode.
-Use `intra_op_threads = 4` on an 8-core desktop CPU for the best measured
-throughput.
+## Composite score
 
 ```c
-pitchee_realtime_scores_options_t options = {
-    24240,
-    1600,
-    {75.0f, 600.0f, 0.9f, 0}
-};
-pitchee_realtime_scores_t* stream = NULL;
-pitchee_realtime_scores_create(
-    analyzer,
-    &options,
-    &stream,
-    error,
-    sizeof(error)
-);
-```
-
-```c
-void on_scores(
-    const pitchee_realtime_scores_frame_t* frame,
-    void* user_data
-) {
-    if (!frame->voiced) return;
-    printf("t=%.3f f0=%.2f vfp=%.2f naturalness=%.2f\n",
-           frame->timestamp_seconds,
-           frame->f0_hz,
-           frame->vfp_standard_score,
-           frame->naturalness_score);
-}
-```
-
-`pitchee_realtime_scores_process()` accepts any number of 16 kHz mono Float32
-samples. The first callback happens after the first full 1.515 s window; later
-callbacks occur every 100 ms. Naturalness uses the current window embedding and
-up to the latest 20 window embeddings for the shared standard-deviation
-feature, matching the batch model's feature shape.
-
-Call `pitchee_realtime_scores_reset()` between recordings and
-`pitchee_realtime_scores_destroy()` when finished.
-
-## Spectrum
-
-Spectrum is independent of model loading and ONNX Runtime:
-
-```c
-pitchee_spectrum_options_t options = {
-    2048, 256, 40, 8000,
-    PITCHEE_SPECTRUM_DBFS, 0.65f, 0
-};
-pitchee_spectrum_t* spectrum = NULL;
-
-pitchee_spectrum_create(
-    &options,
-    &spectrum,
-    error,
-    sizeof(error)
-);
-```
-
-`pitchee_spectrum_process()` accepts any number of 16 kHz mono Float32 samples
-and emits one frame every 256 samples after the first full FFT window:
-
-```c
-void on_spectrum_frame(
-    const pitchee_spectrum_frame_t* frame,
-    void* user_data
-);
-```
-
-Each frame contains a pointer to float magnitudes, the first FFT bin index,
-frequency spacing, and summary values `peak_hz`, `centroid_hz`, `rolloff_hz`,
-and `flatness`. The magnitude pointer is valid only during the callback.
-Smoothing is applied to linear magnitudes before conversion to amplitude, power,
-or dBFS.
-
-## WAV file input
-
-```c
-status = pitchee_analyzer_analyze_wav_file(
-    analyzer,
-    wav_path,
-    PITCHEE_SCORE_PROFILE_FEMINIZATION,
-    phase_callback,
-    user_data,
-    &json,
-    error,
-    sizeof(error)
-);
-```
-
-PCM16, PCM32, and Float32 WAV files are supported. Compressed formats should
-be decoded by the platform audio API and passed to
-`pitchee_analyzer_analyze_pcm()`.
-
-## Result schema
-
-The result is deliberately data-only:
-
-```json
-{
-  "schema_version": 3,
-  "model_version": "2026-09",
-  "score_profile": "feminization",
-  "audio": {
-    "source_sample_rate": 48000,
-    "source_channels": 1,
-    "input_seconds": 5.2,
-    "analyzed_seconds": 5.2
-  },
-  "vad": {
-    "segment_count": 4,
-    "speech_seconds": 1.5,
-    "silero_segment_count": 4,
-    "discarded_breath_like_count": 0,
-    "trimmed_segment_count": 4,
-    "segments": []
-  },
-  "f0": {
-    "window_seconds": 0.05,
-    "mean_hz": null,
-    "standard_deviation_hz": null,
-    "voiced_frame_count": 0,
-    "voiced_window_count": 0,
-    "windows": []
-  },
-  "vfp": {
-    "vfp_standard_score": 0.0,
-    "window_count": 0,
-    "window_duration_seconds": 0.0,
-    "windows": []
-  },
-  "naturalness": {
-    "score": 0.0,
-    "window_count": 0,
-    "window_duration_seconds": 0.0,
-    "windows": []
-  },
-  "composite": {
-    "base_score": 0.0,
-    "final_score": 0.0,
-    "cap": null,
-    "rule": "continuous",
-    "limited": false,
-    "boosted": false
-  }
-}
-```
-
-`f0.windows`, `naturalness.windows`, and `vfp.windows` all expose the original
-analyzed-audio timeline. VFP and naturalness windows are generated only inside
-retained VAD speech segments and never cross removed silence. A speech segment
-shorter than the model patch is processed at its exact length without padding.
-There is no timeline geometry, color band, label, player state, or other UI
-concept in the result.
-
-## Composite score helper
-
-```c
-pitchee_composite_score_t score;
-pitchee_composite_score(
+pitchee_score_result_t score;
+pitchee_score(
     PITCHEE_SCORE_PROFILE_FEMINIZATION,
     vfp_standard_score,
     naturalness_score,
     f0_hz,
-    has_f0,
     &score
 );
 ```
 
-This function has no ONNX Runtime dependency and can be reused independently.
+Pass `NAN` or a non-positive `f0_hz` when F0 is unavailable. The final value is
+`score.final_score`; the other fields describe the selected rule, cap, and
+whether a boost or limit was applied.
 
-For callers that only need the final number, use the three-metric convenience
-function:
+This function has no ONNX Runtime dependency.
+
+## Spectrum
+
+Spectrum is independent of analyzer creation and ONNX Runtime:
 
 ```c
-double final_score = pitchee_composite_score_value(
-    PITCHEE_SCORE_PROFILE_FEMINIZATION,
-    vfp_standard_score,
-    naturalness_score,
-    f0_hz
+#include <pitchee/spectrum.h>
+
+pitchee_spectrum_options_t options = {
+    2048, 256, 40, 8000,
+    PITCHEE_SPECTRUM_DBFS, 0.65f
+};
+
+pitchee_spectrum_t* spectrum = NULL;
+pitchee_spectrum_create(&options, &spectrum, error, sizeof(error));
+
+void on_spectrum_frame(
+    const pitchee_spectrum_frame_t* frame,
+    void* user_data
 );
+
+pitchee_spectrum_process(
+    spectrum,
+    samples,
+    sample_count,
+    on_spectrum_frame,
+    user_data,
+    error,
+    sizeof(error)
+);
+
+pitchee_spectrum_reset(spectrum);
+pitchee_spectrum_destroy(spectrum);
 ```
 
-Pass `NAN` or a non-positive `f0_hz` when F0 is unavailable.
+The magnitude pointer is valid only during the callback. Input is 16 kHz mono
+Float32 PCM.
+
+## Result schema
+
+The batch result is UTF-8 JSON with these top-level sections:
+
+```json
+{
+  "schema_version": 3,
+  "model_version": "2026-10-f1",
+  "score_profile": "feminization",
+  "audio": {},
+  "vad": {},
+  "f0": {},
+  "vfp": {},
+  "naturalness": {},
+  "composite": {}
+}
+```
+
+`f0.windows`, `vfp.windows`, and `naturalness.windows` use the original analyzed
+audio timeline. The result contains data only: no UI geometry, labels, player
+state, or color information.

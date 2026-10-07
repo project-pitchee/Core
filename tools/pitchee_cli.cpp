@@ -41,13 +41,14 @@ int main(int argc, char** argv) {
     }
 
     char error[1024] = {};
-    pitchee_analyzer_options_t options{};
-    options.intra_op_threads = 2;
-    options.use_coreml = 1;
     pitchee_analyzer_t* analyzer = nullptr;
     pitchee_status_t status = pitchee_analyzer_create(
         argv[1],
-        &options,
+        2,
+        1,
+        75.0f,
+        600.0f,
+        0.9f,
         &analyzer,
         error,
         sizeof(error)
@@ -58,7 +59,7 @@ int main(int argc, char** argv) {
     }
 
     char* json = nullptr;
-    status = pitchee_analyzer_analyze_wav_file_with_progress(
+    status = pitchee_analyze_wav_file(
         analyzer,
         argv[2],
         score_profile,

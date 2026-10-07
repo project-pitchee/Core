@@ -12,21 +12,15 @@ public final class PitcheeAnalyzer {
         maxF0Hz: Float = 600,
         minConfidence: Float = 0.9
     ) throws {
-        var options = pitchee_analyzer_options_t(
-            intra_op_threads: threads,
-            use_coreml: 1,
-            thresholds: pitchee_f0_thresholds_t(
-                min_f0_hz: minF0Hz,
-                max_f0_hz: maxF0Hz,
-                min_confidence: minConfidence,
-                reserved: 0
-            )
-        )
         var error = [CChar](repeating: 0, count: 1024)
         var created: OpaquePointer?
         let status = pitchee_analyzer_create(
             modelDirectory.path,
-            &options,
+            threads,
+            1,
+            minF0Hz,
+            maxF0Hz,
+            minConfidence,
             &created,
             &error,
             error.count
@@ -62,7 +56,7 @@ public final class PitcheeAnalyzer {
         var output: UnsafeMutablePointer<CChar>?
         var error = [CChar](repeating: 0, count: 1024)
         let status = samples.withUnsafeBufferPointer { buffer in
-            pitchee_analyzer_analyze_pcm(
+            pitchee_analyze_pcm(
                 handle,
                 buffer.baseAddress,
                 buffer.count,

@@ -33,11 +33,18 @@ int main(int argc, char** argv) {
     }
     fclose(audio);
 
-    pitchee_analyzer_options_t options = {2, 0, {75.0f, 600.0f, 0.9f, 0}};
     pitchee_analyzer_t* analyzer = NULL;
     char error[1024] = {0};
     pitchee_status_t status = pitchee_analyzer_create(
-        argv[1], &options, &analyzer, error, sizeof(error)
+        argv[1],
+        2,
+        0,
+        75.0f,
+        600.0f,
+        0.9f,
+        &analyzer,
+        error,
+        sizeof(error)
     );
     if (status != PITCHEE_SUCCESS) {
         fprintf(stderr, "%s\n", error);
@@ -46,7 +53,7 @@ int main(int argc, char** argv) {
     }
 
     char* json = NULL;
-    status = pitchee_analyzer_analyze_pcm(
+    status = pitchee_analyze_pcm(
         analyzer,
         samples,
         (size_t)byte_count / sizeof(float),

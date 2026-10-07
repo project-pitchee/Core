@@ -26,17 +26,15 @@ Java_space_pitchee_core_PitcheeAnalyzer_nativeCreate(
     jfloat min_confidence
 ) {
     const char* model_chars = env->GetStringUTFChars(model_directory, nullptr);
-    pitchee_analyzer_options_t options{};
-    options.intra_op_threads = threads;
-    options.use_coreml = 0;
-    options.thresholds.min_f0_hz = min_f0_hz;
-    options.thresholds.max_f0_hz = max_f0_hz;
-    options.thresholds.min_confidence = min_confidence;
     pitchee_analyzer_t* analyzer = nullptr;
     char error[1024] = {};
     const auto status = pitchee_analyzer_create(
         model_chars,
-        &options,
+        threads,
+        0,
+        min_f0_hz,
+        max_f0_hz,
+        min_confidence,
         &analyzer,
         error,
         sizeof(error)
@@ -74,7 +72,7 @@ Java_space_pitchee_core_PitcheeAnalyzer_nativeAnalyze(
     env->GetFloatArrayRegion(samples, 0, count, pcm.data());
     char* json = nullptr;
     char error[1024] = {};
-    const auto status = pitchee_analyzer_analyze_pcm(
+    const auto status = pitchee_analyze_pcm(
         analyzer,
         pcm.data(),
         pcm.size(),

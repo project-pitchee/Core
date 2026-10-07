@@ -24,8 +24,6 @@ extern "C" {
 
 typedef struct pitchee_analyzer_t pitchee_analyzer_t;
 typedef struct pitchee_realtime_f0_t pitchee_realtime_f0_t;
-typedef struct pitchee_realtime_scores_t pitchee_realtime_scores_t;
-typedef struct pitchee_spectrum_t pitchee_spectrum_t;
 
 typedef enum pitchee_status_t {
     PITCHEE_SUCCESS = 0,
@@ -38,23 +36,11 @@ typedef enum pitchee_status_t {
     PITCHEE_ERROR_INTERNAL = 7
 } pitchee_status_t;
 
-/* Required by every analysis and composite-score call. */
+/* Required by every analysis and score call. */
 typedef enum pitchee_score_profile_t {
     PITCHEE_SCORE_PROFILE_FEMINIZATION = 0,
     PITCHEE_SCORE_PROFILE_MASCULINIZATION = 1
 } pitchee_score_profile_t;
-
-typedef enum pitchee_analysis_phase_t {
-    PITCHEE_PHASE_PREPARING_MODELS = 0,
-    PITCHEE_PHASE_LOADING_AUDIO = 1,
-    PITCHEE_PHASE_ANALYZING = 2,
-    PITCHEE_PHASE_COMPLETED = 3
-} pitchee_analysis_phase_t;
-
-typedef void (*pitchee_phase_callback_t)(
-    pitchee_analysis_phase_t phase,
-    void* user_data
-);
 
 typedef enum pitchee_progress_stage_t {
     PITCHEE_PROGRESS_STAGE_LOADING_AUDIO = 0,
@@ -69,13 +55,11 @@ typedef enum pitchee_progress_stage_t {
     PITCHEE_PROGRESS_STAGE_SCORING_NATURALNESS_WINDOWS = 9,
     PITCHEE_PROGRESS_STAGE_CALCULATING_SCORES = 10,
     PITCHEE_PROGRESS_STAGE_SERIALIZING_RESULT = 11,
-    PITCHEE_PROGRESS_STAGE_COMPLETED = 12,
-    PITCHEE_PROGRESS_STAGE_COUNT = 13
+    PITCHEE_PROGRESS_STAGE_COMPLETED = 12
 } pitchee_progress_stage_t;
 
 typedef struct pitchee_progress_t {
     pitchee_progress_stage_t stage;
-    int32_t reserved;
     uint64_t completed;
     uint64_t total;
     double fraction;
@@ -86,29 +70,11 @@ typedef void (*pitchee_progress_callback_t)(
     void* user_data
 );
 
-/*
- * Zero values select the Core defaults:
- * min_f0_hz=75, max_f0_hz=600, min_confidence=0.9.
- */
-typedef struct pitchee_f0_thresholds_t {
-    float min_f0_hz;
-    float max_f0_hz;
-    float min_confidence;
-    int32_t reserved;
-} pitchee_f0_thresholds_t;
-
-typedef struct pitchee_realtime_f0_options_t {
-    int32_t context_samples;
-    int32_t hop_samples;
-    pitchee_f0_thresholds_t thresholds;
-} pitchee_realtime_f0_options_t;
-
 typedef struct pitchee_f0_frame_t {
     double timestamp_seconds;
     float f0_hz;
     float confidence;
     int32_t voiced;
-    int32_t reserved;
 } pitchee_f0_frame_t;
 
 typedef void (*pitchee_f0_frame_callback_t)(
@@ -116,68 +82,7 @@ typedef void (*pitchee_f0_frame_callback_t)(
     void* user_data
 );
 
-typedef struct pitchee_realtime_scores_options_t {
-    int32_t context_samples;
-    int32_t hop_samples;
-    pitchee_f0_thresholds_t thresholds;
-} pitchee_realtime_scores_options_t;
-
-typedef struct pitchee_realtime_scores_frame_t {
-    double timestamp_seconds;
-    float vfp_standard_score;
-    float naturalness_score;
-    float f0_hz;
-    float f0_confidence;
-    int32_t voiced;
-    int32_t reserved;
-} pitchee_realtime_scores_frame_t;
-
-typedef void (*pitchee_realtime_scores_callback_t)(
-    const pitchee_realtime_scores_frame_t* frame,
-    void* user_data
-);
-
-typedef enum pitchee_spectrum_value_t {
-    PITCHEE_SPECTRUM_AMPLITUDE = 0,
-    PITCHEE_SPECTRUM_POWER = 1,
-    PITCHEE_SPECTRUM_DBFS = 2
-} pitchee_spectrum_value_t;
-
-typedef struct pitchee_spectrum_options_t {
-    int32_t fft_size;
-    int32_t hop_samples;
-    int32_t min_hz;
-    int32_t max_hz;
-    pitchee_spectrum_value_t value_type;
-    float smoothing;
-    int32_t reserved;
-} pitchee_spectrum_options_t;
-
-typedef struct pitchee_spectrum_frame_t {
-    double timestamp_seconds;
-    const float* magnitudes;
-    size_t bin_count;
-    size_t first_bin_index;
-    float bin_hz;
-    float peak_hz;
-    float centroid_hz;
-    float rolloff_hz;
-    float flatness;
-    int32_t reserved;
-} pitchee_spectrum_frame_t;
-
-typedef void (*pitchee_spectrum_callback_t)(
-    const pitchee_spectrum_frame_t* frame,
-    void* user_data
-);
-
-typedef struct pitchee_analyzer_options_t {
-    int32_t intra_op_threads;
-    int32_t use_coreml;
-    pitchee_f0_thresholds_t thresholds;
-} pitchee_analyzer_options_t;
-
-typedef struct pitchee_composite_score_t {
+typedef struct pitchee_score_result_t {
     double base_score;
     double final_score;
     double score_cap;
@@ -185,13 +90,21 @@ typedef struct pitchee_composite_score_t {
     int32_t score_limited;
     int32_t score_boosted;
     char score_rule[32];
-} pitchee_composite_score_t;
+} pitchee_score_result_t;
 
-PITCHEE_API const char* pitchee_core_version(void);
+PITCHEE_API const char* pitchee_version(void);
 
+/*
+ * Zero values for intra_op_threads and min_confidence select 2 and 0.9.
+ * Zero values for min_f0_hz and max_f0_hz select 75 Hz and 600 Hz.
+ */
 PITCHEE_API pitchee_status_t pitchee_analyzer_create(
     const char* model_directory,
-    const pitchee_analyzer_options_t* options,
+    int32_t intra_op_threads,
+    int32_t use_coreml,
+    float min_f0_hz,
+    float max_f0_hz,
+    float min_confidence,
     pitchee_analyzer_t** out_analyzer,
     char* error_message,
     size_t error_message_capacity
@@ -205,21 +118,7 @@ PITCHEE_API void pitchee_analyzer_destroy(pitchee_analyzer_t* analyzer);
  * The returned JSON string is allocated by PitcheeCore and must be released with
  * pitchee_string_free().
  */
-PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_pcm(
-    pitchee_analyzer_t* analyzer,
-    const float* samples,
-    size_t sample_count,
-    int32_t sample_rate,
-    int32_t channels,
-    pitchee_score_profile_t score_profile,
-    pitchee_phase_callback_t phase_callback,
-    void* user_data,
-    char** out_json,
-    char* error_message,
-    size_t error_message_capacity
-);
-
-PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_pcm_with_progress(
+PITCHEE_API pitchee_status_t pitchee_analyze_pcm(
     pitchee_analyzer_t* analyzer,
     const float* samples,
     size_t sample_count,
@@ -233,18 +132,7 @@ PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_pcm_with_progress(
     size_t error_message_capacity
 );
 
-PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_wav_file(
-    pitchee_analyzer_t* analyzer,
-    const char* wav_path,
-    pitchee_score_profile_t score_profile,
-    pitchee_phase_callback_t phase_callback,
-    void* user_data,
-    char** out_json,
-    char* error_message,
-    size_t error_message_capacity
-);
-
-PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_wav_file_with_progress(
+PITCHEE_API pitchee_status_t pitchee_analyze_wav_file(
     pitchee_analyzer_t* analyzer,
     const char* wav_path,
     pitchee_score_profile_t score_profile,
@@ -257,7 +145,8 @@ PITCHEE_API pitchee_status_t pitchee_analyzer_analyze_wav_file_with_progress(
 
 PITCHEE_API pitchee_status_t pitchee_realtime_f0_create(
     pitchee_analyzer_t* analyzer,
-    const pitchee_realtime_f0_options_t* options,
+    int32_t context_samples,
+    int32_t hop_samples,
     pitchee_realtime_f0_t** out_stream,
     char* error_message,
     size_t error_message_capacity
@@ -269,7 +158,6 @@ PITCHEE_API pitchee_status_t pitchee_realtime_f0_process(
     size_t sample_count,
     pitchee_f0_frame_callback_t frame_callback,
     void* user_data,
-    size_t* out_frame_count,
     char* error_message,
     size_t error_message_capacity
 );
@@ -278,73 +166,16 @@ PITCHEE_API void pitchee_realtime_f0_reset(pitchee_realtime_f0_t* stream);
 
 PITCHEE_API void pitchee_realtime_f0_destroy(pitchee_realtime_f0_t* stream);
 
-PITCHEE_API pitchee_status_t pitchee_realtime_scores_create(
-    pitchee_analyzer_t* analyzer,
-    const pitchee_realtime_scores_options_t* options,
-    pitchee_realtime_scores_t** out_stream,
-    char* error_message,
-    size_t error_message_capacity
-);
-
-PITCHEE_API pitchee_status_t pitchee_realtime_scores_process(
-    pitchee_realtime_scores_t* stream,
-    const float* samples,
-    size_t sample_count,
-    pitchee_realtime_scores_callback_t frame_callback,
-    void* user_data,
-    size_t* out_frame_count,
-    char* error_message,
-    size_t error_message_capacity
-);
-
-PITCHEE_API void pitchee_realtime_scores_reset(
-    pitchee_realtime_scores_t* stream
-);
-
-PITCHEE_API void pitchee_realtime_scores_destroy(
-    pitchee_realtime_scores_t* stream
-);
-
-PITCHEE_API pitchee_status_t pitchee_spectrum_create(
-    const pitchee_spectrum_options_t* options,
-    pitchee_spectrum_t** out_spectrum,
-    char* error_message,
-    size_t error_message_capacity
-);
-
-PITCHEE_API pitchee_status_t pitchee_spectrum_process(
-    pitchee_spectrum_t* spectrum,
-    const float* samples,
-    size_t sample_count,
-    pitchee_spectrum_callback_t frame_callback,
-    void* user_data,
-    size_t* out_frame_count,
-    char* error_message,
-    size_t error_message_capacity
-);
-
-PITCHEE_API void pitchee_spectrum_reset(pitchee_spectrum_t* spectrum);
-
-PITCHEE_API void pitchee_spectrum_destroy(pitchee_spectrum_t* spectrum);
-
-PITCHEE_API pitchee_status_t pitchee_composite_score(
+/*
+ * Pass NAN or a non-positive f0_hz when F0 is unavailable.
+ * The final score is clamped to 0-100.
+ */
+PITCHEE_API pitchee_status_t pitchee_score(
     pitchee_score_profile_t score_profile,
     double vfp_standard_score,
     double naturalness_score,
     double f0_hz,
-    int32_t has_f0,
-    pitchee_composite_score_t* out_score
-);
-
-/*
- * Convenience form using exactly three metrics. Pass NAN or a non-positive
- * f0_hz when no valid F0 is available. The returned value is clamped to 0-100.
- */
-PITCHEE_API double pitchee_composite_score_value(
-    pitchee_score_profile_t score_profile,
-    double vfp_standard_score,
-    double naturalness_score,
-    double f0_hz
+    pitchee_score_result_t* out_score
 );
 
 PITCHEE_API void pitchee_string_free(char* value);

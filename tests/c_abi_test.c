@@ -1,4 +1,5 @@
 #include "pitchee/pitchee.h"
+#include "pitchee/spectrum.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -9,18 +10,17 @@ static void progress_callback(const pitchee_progress_t* progress, void* user_dat
 }
 
 int main(void) {
-    if (strcmp(pitchee_core_version(), "0.4.0") != 0) {
+    if (strcmp(pitchee_version(), "0.5.0") != 0) {
         fprintf(stderr, "unexpected version\n");
         return 1;
     }
 
-    pitchee_composite_score_t score;
-    if (pitchee_composite_score(
+    pitchee_score_result_t score;
+    if (pitchee_score(
             PITCHEE_SCORE_PROFILE_FEMINIZATION,
             63.0,
             90.0,
             0.0,
-            0,
             &score
         )
         != PITCHEE_SUCCESS) {
@@ -36,7 +36,7 @@ int main(void) {
         return 1;
     }
 
-    if (pitchee_analyzer_analyze_wav_file_with_progress(
+    if (pitchee_analyze_wav_file(
             NULL,
             "missing.wav",
             PITCHEE_SCORE_PROFILE_FEMINIZATION,
@@ -52,7 +52,8 @@ int main(void) {
 
     if (pitchee_realtime_f0_create(
             NULL,
-            NULL,
+            5120,
+            256,
             NULL,
             NULL,
             0
@@ -64,7 +65,6 @@ int main(void) {
             NULL,
             NULL,
             0,
-            NULL,
             NULL,
             NULL,
             NULL,
@@ -86,7 +86,6 @@ int main(void) {
             NULL,
             NULL,
             0,
-            NULL,
             NULL,
             NULL,
             NULL,

@@ -1,4 +1,4 @@
-#include "pitchee/pitchee.h"
+#include "pitchee/spectrum.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -38,8 +38,7 @@ int main() {
         40,
         8000,
         PITCHEE_SPECTRUM_DBFS,
-        0.0f,
-        0
+        0.0f
     };
     pitchee_spectrum_t* spectrum = nullptr;
     char error[1024] = {};
@@ -63,7 +62,6 @@ int main() {
     }
 
     SpectrumCapture capture;
-    size_t emitted = 0;
     for (size_t start = 0; start < sample_count; start += 1024) {
         const size_t count = std::min<size_t>(1024, sample_count - start);
         require(
@@ -73,13 +71,11 @@ int main() {
                 count,
                 capture_frame,
                 &capture,
-                &emitted,
                 error,
                 sizeof(error)
             ) == PITCHEE_SUCCESS,
             "spectrum process"
         );
-        (void)emitted;
     }
     require(capture.frames == 55, "spectrum frame count");
     require(capture.first_bin_count == 1019, "spectrum bin count");

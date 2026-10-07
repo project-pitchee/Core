@@ -1,4 +1,5 @@
 module CPitcheeCore {
     header "../../include/pitchee/pitchee.h"
+    header "../../include/pitchee/spectrum.h"
     export *
 }
