@@ -383,7 +383,7 @@ pitchee_spectrum_destroy(spectrum);
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "model_version": "2026-09",
   "score_profile": "feminization",
   "audio": {
@@ -416,6 +416,17 @@ pitchee_spectrum_destroy(spectrum);
     "windows": [
       {"start_seconds": 0.0, "end_seconds": 0.05, "f0_hz": null},
       {"start_seconds": 0.7, "end_seconds": 0.8, "f0_hz": 187.3043}
+    ]
+  },
+  "voice_quality": {
+    "algorithm": "autocorr-praat-v1",
+    "hnr_db": 15.2,
+    "hnr_window_count": 1,
+    "hnr_std_db": 0.0,
+    "window_seconds": 0.04,
+    "windows": [
+      {"start_seconds": 0.0, "end_seconds": 0.04, "hnr_db": null},
+      {"start_seconds": 0.01, "end_seconds": 0.05, "hnr_db": 15.2}
     ]
   },
   "vfp": {
@@ -451,7 +462,7 @@ pitchee_spectrum_destroy(spectrum);
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
-| `schema_version` | 整数 | JSON 数据契约版本。结构不兼容变化时递增。当前为 `3`。 |
+| `schema_version` | 整数 | JSON 数据契约版本。当前为 `4`；在 v3 基础上新增 `voice_quality`。 |
 | `model_version` | 字符串 | 模型组合版本。当前为 `2026-09`。模型更新后应同步更新。 |
 | `score_profile` | 字符串 | 当前评分标准，`feminization` 或 `masculinization`。 |
 
@@ -513,6 +524,37 @@ end_seconds - start_seconds
 | `start_seconds` | 秒 | 窗口在原始分析音频时间轴上的起点。 |
 | `end_seconds` | 秒 | 窗口在原始分析音频时间轴上的终点。 |
 | `f0_hz` | Hz 或 `null` | 窗口内有效浊音帧的平均 F0；没有有效帧时为 `null`。 |
+
+### `voice_quality`
+
+HNR（谐噪比）是无模型的外模块，使用 `autocorr-praat-v1`。独立采用 40 ms
+窗口（16 kHz 下 640 samples，容纳 75 Hz 的三个周期）和 10 ms hop
+（160 samples），不依赖 F0 置信度或窗口。先复用现有 VAD 的原始时间轴区间：
+只有实际窗口中心落入 `[start_seconds, end_seconds)` 才读取 PCM 并继续计算，
+其他窗口保留且 HNR 为 `null`；空 VAD 列表不会绕过门控。通过 VAD 后做去均值、
+重叠能量归一化自相关，搜索 75–600 Hz 对应的整数 lag，并用
+`10 × log10(r / (1 − r))` 转换为 dB。最大相关系数小于 `0.3` 时为 `null`；
+等于 `0.3` 时保留负的 dB 值。每个候选 lag 要求窗口至少包含两个周期，
+过短尾窗无可用 lag 时为 `null`。完美周期的 `r = 1` 使用最接近且小于 1
+的 `double`，确保结果可作为有限 JSON 数值保存。具体数值约定见
+[API 文档](docs/API.md#result-schema)。
+
+| 字段 | 含义 |
+| --- | --- |
+| `algorithm` | 固定为 `autocorr-praat-v1`。 |
+| `hnr_db` | 有效窗口 HNR 的算术均值；没有有效值时为 `null`。 |
+| `hnr_window_count` | 参与均值的窗口数。 |
+| `hnr_std_db` | 有效窗口 HNR 的总体标准差（分母 N）；没有有效值时为 `null`。 |
+| `window_seconds` | HNR 自身的窗口长度，固定为 `0.04`。 |
+| `windows` | 独立按 10 ms hop 划分，包含 `start_seconds`、`end_seconds`、可空的 `hnr_db`；保留末尾重叠短窗。 |
+
+公开 ABI 位于 `include/pitchee/hnr.h`，实现位于 `external/hnr/`。
+`pitchee_hnr_analyze` 接收原始 16 kHz mono PCM 和已计算的 VAD 区间，无需
+创建 analyzer 或加载模型，采用同步回调返回窗口，计算零堆分配、零加锁。
+现有 VAD 是内部 Silero 模型及其呼吸过滤、裁剪结果；HNR 不自建检测器。
+录音分析在模型窗口循环之外复用其 `source_start_seconds/source_end_seconds`
+调用同一模块汇总结果；实时 F0 不计算 HNR。本字段不参与评分。旧 v3 录音
+没有此段。独立 C API 见 [API 文档](docs/API.md#standalone-hnr-no-models)。
 
 ### `vfp`
 

@@ -1,6 +1,8 @@
 #ifndef PITCHEE_INTERNAL_HPP
 #define PITCHEE_INTERNAL_HPP
 
+#include "../external/hnr/hnr.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <limits>
@@ -15,7 +17,7 @@ constexpr int kPatchSamples = 24240;
 constexpr int kStrideSamples = 1600;
 constexpr int kEmbeddingBatchSize = 8;
 constexpr int kEmbeddingDimensions = 192;
-constexpr int kSchemaVersion = 3;
+constexpr int kSchemaVersion = 4;
 // An infinite limit disables input truncation in the analyzer.
 constexpr double kMaximumSeconds = std::numeric_limits<double>::infinity();
 
@@ -88,6 +90,7 @@ struct AnalysisResult {
     int voiced_frame_count = 0;
     int voiced_window_count = 0;
     std::vector<F0Window> f0_windows;
+    VoiceQualityResult voice_quality;
     double naturalness_score = 0.0;
     CompositeScore score;
     VadResult vad;

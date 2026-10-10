@@ -728,6 +728,16 @@ pitchee_status_t analyze_pcm_impl(
         result.voiced_frame_count = pitch.voiced_frame_count;
         result.voiced_window_count = pitch.voiced_window_count;
         result.f0_windows = pitch.windows;
+        // Reuse the existing filtered VAD on the original PCM timeline. HNR
+        // remains external and does not load a detector or use F0 confidence.
+        std::vector<pitchee_hnr_vad_segment_t> hnr_vad_segments;
+        hnr_vad_segments.reserve(vad.segments.size());
+        for (const auto& segment : vad.segments) {
+            hnr_vad_segments.push_back({segment.source_start_seconds, segment.source_end_seconds});
+        }
+        result.voice_quality = pitchee::analyze_hnr(
+            signal.data(), signal.size(), hnr_vad_segments.data(), hnr_vad_segments.size()
+        );
         result.naturalness_score = analyzer->naturalness->score(features);
         result.score = pitchee::calculate_composite_score(
             score_profile,

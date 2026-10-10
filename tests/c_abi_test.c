@@ -73,6 +73,16 @@ int main(void) {
         fprintf(stderr, "unexpected realtime F0 process status\n");
         return 1;
     }
+    {
+        const float silence[64] = {0};
+        pitchee_hnr_summary_t summary;
+        if (pitchee_hnr_analyze(silence, 64, NULL, 0, NULL, NULL, &summary) != PITCHEE_SUCCESS
+            || summary.has_hnr != 0 || summary.hnr_window_count != 0
+            || summary.window_seconds != 0.04) {
+            fprintf(stderr, "unexpected standalone HNR status\n");
+            return 1;
+        }
+    }
     if (pitchee_spectrum_create(
             NULL,
             NULL,

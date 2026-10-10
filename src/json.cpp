@@ -21,6 +21,10 @@ std::string optional_number(bool present, double value) {
     return present ? number(value) : "null";
 }
 
+std::string optional_number(const std::optional<double>& value) {
+    return value ? number(*value) : "null";
+}
+
 const char* score_profile_name(int profile) {
     return profile == 1
         ? "masculinization"
@@ -121,6 +125,23 @@ std::string result_to_json(const AnalysisResult& result) {
                << ",\"end_seconds\":" << number(window.end_seconds)
                << ",\"f0_hz\":"
                << optional_number(window.has_f0, window.f0_hz)
+               << "}";
+    }
+    output << "]},";
+
+    output << "\"voice_quality\":{";
+    output << "\"algorithm\":\"" << kHNRAlgorithm << "\",";
+    output << "\"hnr_db\":" << optional_number(result.voice_quality.hnr_db) << ",";
+    output << "\"hnr_window_count\":" << result.voice_quality.hnr_window_count << ",";
+    output << "\"hnr_std_db\":" << optional_number(result.voice_quality.hnr_std_db) << ",";
+    output << "\"window_seconds\":" << result.voice_quality.window_seconds << ",";
+    output << "\"windows\":[";
+    for (size_t index = 0; index < result.voice_quality.windows.size(); ++index) {
+        const auto& window = result.voice_quality.windows[index];
+        if (index) output << ",";
+        output << "{\"start_seconds\":" << number(window.start_seconds)
+               << ",\"end_seconds\":" << number(window.end_seconds)
+               << ",\"hnr_db\":" << optional_number(window.hnr_db)
                << "}";
     }
     output << "]},";

@@ -4,20 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#if defined(PITCHEE_STATIC)
-#  define PITCHEE_API
-#elif defined(_WIN32)
-#  if defined(PITCHEE_CORE_BUILD)
-#    define PITCHEE_API __declspec(dllexport)
-#  else
-#    define PITCHEE_API __declspec(dllimport)
-#  endif
-#elif defined(__GNUC__) || defined(__clang__)
-#  define PITCHEE_API __attribute__((visibility("default")))
-#else
-#  define PITCHEE_API
-#endif
-
+#include "common.h"
+#include "hnr.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -25,16 +13,7 @@ extern "C" {
 typedef struct pitchee_analyzer_t pitchee_analyzer_t;
 typedef struct pitchee_realtime_f0_t pitchee_realtime_f0_t;
 
-typedef enum pitchee_status_t {
-    PITCHEE_SUCCESS = 0,
-    PITCHEE_ERROR_INVALID_ARGUMENT = 1,
-    PITCHEE_ERROR_IO = 2,
-    PITCHEE_ERROR_ORT_UNAVAILABLE = 3,
-    PITCHEE_ERROR_MODEL = 4,
-    PITCHEE_ERROR_NO_SPEECH = 5,
-    PITCHEE_ERROR_UNSUPPORTED_FORMAT = 6,
-    PITCHEE_ERROR_INTERNAL = 7
-} pitchee_status_t;
+
 
 /* Required by every analysis and score call. */
 typedef enum pitchee_score_profile_t {
@@ -152,6 +131,12 @@ PITCHEE_API pitchee_status_t pitchee_realtime_f0_create(
     size_t error_message_capacity
 );
 
+/*
+ * Synchronous: frame_callback is invoked on the calling thread, only before
+ * this function returns. Neither frame_callback nor user_data is retained.
+ * Each frame pointer is valid only for that callback invocation; copy values
+ * needed afterward. The samples pointer is also borrowed only for this call.
+ */
 PITCHEE_API pitchee_status_t pitchee_realtime_f0_process(
     pitchee_realtime_f0_t* stream,
     const float* samples,

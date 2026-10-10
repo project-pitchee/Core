@@ -42,6 +42,7 @@ endif()
 add_library(pitchee_core ${PITCHEE_LIBRARY_TYPE}
     src/analyzer.cpp
     src/audio.cpp
+    external/hnr/hnr.cpp
     src/json.cpp
     src/naturalness.cpp
     src/model_runtime.cpp
@@ -212,6 +213,18 @@ if(PITCHEE_BUILD_TESTS)
     target_compile_features(pitchee_json_test PRIVATE cxx_std_17)
     target_include_directories(pitchee_json_test PRIVATE src)
     add_test(NAME pitchee_json_test COMMAND pitchee_json_test)
+
+    add_executable(pitchee_hnr_test tests/hnr_test.cpp external/hnr/hnr.cpp)
+    target_compile_features(pitchee_hnr_test PRIVATE cxx_std_17)
+    target_compile_definitions(pitchee_hnr_test PRIVATE PITCHEE_STATIC=1)
+    target_include_directories(pitchee_hnr_test PRIVATE external/hnr include)
+    add_test(NAME pitchee_hnr_test COMMAND pitchee_hnr_test)
+
+    add_executable(pitchee_hnr_header_test tests/hnr_header_test.c external/hnr/hnr.cpp)
+    target_compile_features(pitchee_hnr_header_test PRIVATE cxx_std_17)
+    target_compile_definitions(pitchee_hnr_header_test PRIVATE PITCHEE_STATIC=1)
+    target_include_directories(pitchee_hnr_header_test PRIVATE include)
+    add_test(NAME pitchee_hnr_header_test COMMAND pitchee_hnr_header_test)
 
     add_executable(pitchee_spectrum_test tests/spectrum_test.cpp)
     target_link_libraries(pitchee_spectrum_test PRIVATE pitchee_core)
