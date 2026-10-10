@@ -13,6 +13,8 @@ constexpr double kPi = 3.14159265358979323846;
 struct Capture {
     size_t frames = 0;
     size_t voiced_frames = 0;
+    double first_timestamp = 0.0;
+    double last_timestamp = 0.0;
 };
 
 void capture_frame(
@@ -20,6 +22,8 @@ void capture_frame(
     void* user_data
 ) {
     auto& capture = *static_cast<Capture*>(user_data);
+    if (capture.frames == 0) capture.first_timestamp = frame->timestamp_seconds;
+    capture.last_timestamp = frame->timestamp_seconds;
     capture.frames += 1;
     if (frame->voiced) capture.voiced_frames += 1;
 }
@@ -90,6 +94,102 @@ Capture run_f0(
     return capture;
 }
 
+void test_options(
+    pitchee_analyzer_t* analyzer,
+    const std::vector<float>& samples,
+    char* error,
+    size_t error_capacity
+) {
+    pitchee_realtime_f0_options_t options{};
+    options.struct_size = sizeof(options);
+    options.version = PITCHEE_REALTIME_F0_OPTIONS_VERSION;
+    options.context_samples = 5120;
+    options.inference_hop_samples = 256;
+    options.output_rate_hz = 30.0;
+    options.start_timestamp_seconds = 10.0;
+
+    pitchee_realtime_f0_t* stream = nullptr;
+    if (pitchee_realtime_f0_create_with_options(
+            analyzer,
+            &options,
+            &stream,
+            error,
+            error_capacity
+        ) != PITCHEE_SUCCESS) {
+        std::cerr << "F0 stream options create failed: " << error << "\n";
+        std::exit(1);
+    }
+    if (pitchee_realtime_f0_warmup(stream, error, error_capacity)
+        != PITCHEE_SUCCESS) {
+        std::cerr << "F0 warmup failed: " << error << "\n";
+        std::exit(1);
+    }
+
+    pitchee_realtime_f0_metadata_t metadata{};
+    metadata.struct_size = sizeof(metadata);
+    metadata.version = PITCHEE_REALTIME_F0_METADATA_VERSION;
+    if (pitchee_realtime_f0_get_metadata(
+            stream,
+            &metadata,
+            error,
+            error_capacity
+        ) != PITCHEE_SUCCESS) {
+        std::cerr << "F0 metadata failed: " << error << "\n";
+        std::exit(1);
+    }
+    if (metadata.sample_rate != 16000
+        || metadata.frame_hop_samples != 256
+        || metadata.min_context_samples != 1024
+        || std::abs(metadata.effective_output_rate_hz - 30.0) > 0.001) {
+        std::cerr << "unexpected realtime F0 metadata\n";
+        std::exit(1);
+    }
+
+    Capture capture;
+    for (size_t start = 0; start < samples.size(); start += 256) {
+        const size_t count = std::min<size_t>(256, samples.size() - start);
+        if (pitchee_realtime_f0_process(
+                stream,
+                samples.data() + start,
+                count,
+                capture_frame,
+                &capture,
+                error,
+                error_capacity
+            ) != PITCHEE_SUCCESS) {
+            std::cerr << "F0 options process failed: " << error << "\n";
+            std::exit(1);
+        }
+    }
+
+    pitchee_realtime_f0_stats_t stats{};
+    stats.struct_size = sizeof(stats);
+    stats.version = PITCHEE_REALTIME_F0_STATS_VERSION;
+    if (pitchee_realtime_f0_get_stats(stream, &stats, error, error_capacity)
+        != PITCHEE_SUCCESS) {
+        std::cerr << "F0 stats failed: " << error << "\n";
+        std::exit(1);
+    }
+    if (capture.frames == 0 || capture.first_timestamp < 10.0
+        || capture.last_timestamp < capture.first_timestamp
+        || stats.inference_calls == 0 || stats.emitted_frames == 0
+        || stats.measured_output_hz < 27.0
+        || stats.measured_output_hz > 33.0
+        || stats.average_model_ms < 0.0 || stats.average_total_ms < 0.0) {
+        std::cerr << "unexpected realtime F0 contract behavior\n";
+        std::exit(1);
+    }
+
+    pitchee_realtime_f0_reset(stream);
+    if (pitchee_realtime_f0_get_stats(stream, &stats, error, error_capacity)
+        != PITCHEE_SUCCESS
+        || stats.inference_calls != 0 || stats.emitted_frames != 0) {
+        std::cerr << "realtime F0 reset did not clear stats\n";
+        std::exit(1);
+    }
+    pitchee_realtime_f0_destroy(stream);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -127,11 +227,12 @@ int main(int argc, char** argv) {
         error,
         sizeof(error)
     );
-    pitchee_analyzer_destroy(analyzer);
     if (accepted.frames == 0 || accepted.voiced_frames == 0) {
         std::cerr << "default SwiftF0 thresholds rejected the test signal\n";
         return 1;
     }
+    test_options(analyzer, samples, error, sizeof(error));
+    pitchee_analyzer_destroy(analyzer);
 
     analyzer = create_analyzer(argv[1], 200.0f, error, sizeof(error));
     if (!analyzer) return 0;

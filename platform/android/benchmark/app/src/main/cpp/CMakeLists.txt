@@ -16,3 +16,5 @@ target_include_directories(pitchee_benchmark PRIVATE
     "${PITCHEE_CORE_DIR}/src"
 )
 target_link_libraries(pitchee_benchmark PRIVATE pitchee_core log)
+target_link_options(pitchee_benchmark PRIVATE "-Wl,-z,max-page-size=16384")
+target_link_options(pitchee_benchmark PRIVATE "-static-openmp")

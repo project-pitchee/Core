@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -35,21 +36,47 @@ struct pitchee_analyzer_t {
 struct pitchee_realtime_f0_t {
     pitchee::ModelRuntime* model = nullptr;
     size_t context_samples = 5120;
-    size_t hop_samples = 256;
+    size_t inference_hop_samples = 256;
     size_t buffer_start_sample = 0;
     size_t total_samples = 0;
     size_t samples_since_inference = 0;
     bool has_emitted = false;
     int64_t last_emitted_center_sample = -1;
+    int64_t first_emitted_center_sample = -1;
+    double output_rate_hz = 0.0;
+    double output_interval_samples = 0.0;
+    double next_output_sample = 0.0;
+    double start_timestamp_seconds = 0.0;
     float min_f0_hz = 75.0f;
     float max_f0_hz = 600.0f;
     float min_f0_confidence = 0.9f;
     std::vector<float> buffer;
+    uint64_t process_calls = 0;
+    uint64_t inference_calls = 0;
+    uint64_t emitted_frames = 0;
+    double total_preprocess_ms = 0.0;
+    double total_model_ms = 0.0;
+    double total_postprocess_ms = 0.0;
+    double total_ms = 0.0;
+    double last_preprocess_ms = 0.0;
+    double last_model_ms = 0.0;
+    double last_postprocess_ms = 0.0;
+    double last_total_ms = 0.0;
 };
 
 namespace {
 
 constexpr double kF0WindowSeconds = 0.05;
+constexpr int kSwiftF0FrameHopSamples = 256;
+constexpr int kRealtimeF0MinContextSamples = 1024;
+constexpr double kSwiftF0FrameIntervalSeconds =
+    static_cast<double>(kSwiftF0FrameHopSamples) / pitchee::kSampleRate;
+constexpr double kSwiftF0ModelOutputRateHz =
+    static_cast<double>(pitchee::kSampleRate) / kSwiftF0FrameHopSamples;
+
+struct PitchTiming {
+    double model_ms = 0.0;
+};
 
 struct F0Thresholds {
     float min_hz = 75.0f;
@@ -135,7 +162,8 @@ pitchee::PitchResult analyze_pitch(
     pitchee::ModelRuntime& model,
     const std::vector<float>& samples,
     const ProgressReporter& reporter,
-    const F0Thresholds& thresholds
+    const F0Thresholds& thresholds,
+    PitchTiming* timing = nullptr
 ) {
     reporter.progress(PITCHEE_PROGRESS_STAGE_ANALYZING_F0, 0, 1);
     std::vector<float> input = samples;
@@ -143,7 +171,13 @@ pitchee::PitchResult analyze_pitch(
     pitchee::Tensor tensor;
     tensor.shape = {1, static_cast<int64_t>(input.size())};
     tensor.values = std::move(input);
+    const auto model_started = std::chrono::steady_clock::now();
     auto outputs = model.run_all({{"input_audio", std::move(tensor)}});
+    if (timing) {
+        timing->model_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - model_started
+        ).count();
+    }
     if (outputs.size() < 2 || outputs[0].values.size() != outputs[1].values.size()) {
         throw std::runtime_error("SwiftF0 returned invalid output");
     }
@@ -857,10 +891,9 @@ pitchee_status_t pitchee_analyze_wav_file(
     );
 }
 
-pitchee_status_t pitchee_realtime_f0_create(
+pitchee_status_t pitchee_realtime_f0_create_with_options(
     pitchee_analyzer_t* analyzer,
-    int32_t context_samples,
-    int32_t hop_samples,
+    const pitchee_realtime_f0_options_t* options,
     pitchee_realtime_f0_t** out_stream,
     char* error_message,
     size_t error_message_capacity
@@ -869,26 +902,57 @@ pitchee_status_t pitchee_realtime_f0_create(
         set_error(error_message, error_message_capacity, "invalid realtime F0 argument");
         return PITCHEE_ERROR_INVALID_ARGUMENT;
     }
+    if (options
+        && (options->struct_size < sizeof(*options)
+            || options->version != PITCHEE_REALTIME_F0_OPTIONS_VERSION)) {
+        set_error(error_message, error_message_capacity, "unsupported realtime F0 options");
+        return PITCHEE_ERROR_INVALID_ARGUMENT;
+    }
     *out_stream = nullptr;
-    const size_t resolved_context_samples = context_samples > 0
-        ? static_cast<size_t>(context_samples)
+    const int32_t requested_context_samples = options ? options->context_samples : 0;
+    const int32_t requested_hop_samples = options
+        ? options->inference_hop_samples
+        : 0;
+    const double requested_output_rate_hz = options
+        ? options->output_rate_hz
+        : 0.0;
+    const double start_timestamp_seconds = options
+        ? options->start_timestamp_seconds
+        : 0.0;
+
+    const size_t resolved_context_samples = requested_context_samples > 0
+        ? static_cast<size_t>(requested_context_samples)
         : 5120;
-    const size_t resolved_hop_samples = hop_samples > 0
-        ? static_cast<size_t>(hop_samples)
+    const size_t resolved_hop_samples = requested_hop_samples > 0
+        ? static_cast<size_t>(requested_hop_samples)
         : 256;
-    if (resolved_context_samples < 256 || resolved_hop_samples < 1
+    if (resolved_context_samples < kRealtimeF0MinContextSamples
+        || resolved_hop_samples < 1
         || resolved_hop_samples > resolved_context_samples) {
         set_error(error_message, error_message_capacity, "invalid realtime F0 window options");
         return PITCHEE_ERROR_INVALID_ARGUMENT;
     }
+    if (!std::isfinite(requested_output_rate_hz)
+        || !std::isfinite(start_timestamp_seconds)) {
+        set_error(error_message, error_message_capacity, "invalid realtime F0 output options");
+        return PITCHEE_ERROR_INVALID_ARGUMENT;
+    }
+    const double effective_output_rate_hz = requested_output_rate_hz > 0.0
+        ? std::min(requested_output_rate_hz, kSwiftF0ModelOutputRateHz)
+        : kSwiftF0ModelOutputRateHz;
     try {
         auto stream = std::make_unique<pitchee_realtime_f0_t>();
         stream->model = analyzer->swift_f0.get();
         stream->context_samples = resolved_context_samples;
-        stream->hop_samples = resolved_hop_samples;
+        stream->inference_hop_samples = resolved_hop_samples;
+        stream->output_rate_hz = effective_output_rate_hz;
+        stream->output_interval_samples = static_cast<double>(pitchee::kSampleRate)
+            / effective_output_rate_hz;
+        stream->start_timestamp_seconds = start_timestamp_seconds;
         stream->min_f0_hz = analyzer->min_f0_hz;
         stream->max_f0_hz = analyzer->max_f0_hz;
         stream->min_f0_confidence = analyzer->min_f0_confidence;
+        stream->buffer.reserve(resolved_context_samples);
         *out_stream = stream.release();
         return PITCHEE_SUCCESS;
     } catch (const std::invalid_argument& error) {
@@ -898,6 +962,30 @@ pitchee_status_t pitchee_realtime_f0_create(
         set_error(error_message, error_message_capacity, error.what());
         return status_for_exception(error);
     }
+}
+
+pitchee_status_t pitchee_realtime_f0_create(
+    pitchee_analyzer_t* analyzer,
+    int32_t context_samples,
+    int32_t hop_samples,
+    pitchee_realtime_f0_t** out_stream,
+    char* error_message,
+    size_t error_message_capacity
+) {
+    pitchee_realtime_f0_options_t options{};
+    options.struct_size = sizeof(options);
+    options.version = PITCHEE_REALTIME_F0_OPTIONS_VERSION;
+    options.context_samples = context_samples;
+    options.inference_hop_samples = hop_samples;
+    options.output_rate_hz = 0.0;
+    options.start_timestamp_seconds = 0.0;
+    return pitchee_realtime_f0_create_with_options(
+        analyzer,
+        &options,
+        out_stream,
+        error_message,
+        error_message_capacity
+    );
 }
 
 pitchee_status_t pitchee_realtime_f0_process(
@@ -916,6 +1004,8 @@ pitchee_status_t pitchee_realtime_f0_process(
     if (sample_count == 0) return PITCHEE_SUCCESS;
 
     try {
+        const auto process_started = std::chrono::steady_clock::now();
+        ++stream->process_calls;
         stream->buffer.insert(
             stream->buffer.end(),
             samples,
@@ -931,13 +1021,14 @@ pitchee_status_t pitchee_realtime_f0_process(
             );
             stream->buffer_start_sample += drop;
         }
+        const auto preprocess_finished = std::chrono::steady_clock::now();
 
         if (!stream->has_emitted
             && stream->buffer.size() < stream->context_samples) {
             return PITCHEE_SUCCESS;
         }
         if (stream->has_emitted
-            && stream->samples_since_inference < stream->hop_samples) {
+            && stream->samples_since_inference < stream->inference_hop_samples) {
             return PITCHEE_SUCCESS;
         }
 
@@ -947,12 +1038,15 @@ pitchee_status_t pitchee_realtime_f0_process(
             stream->max_f0_hz,
             stream->min_f0_confidence,
         };
+        PitchTiming timing;
         const auto pitch = analyze_pitch(
             *stream->model,
             stream->buffer,
             reporter,
-            thresholds
+            thresholds,
+            &timing
         );
+        const auto inference_finished = std::chrono::steady_clock::now();
         for (size_t index = 0; index < pitch.pitch_hz.size(); ++index) {
             const int64_t center_sample = static_cast<int64_t>(
                 stream->buffer_start_sample
@@ -963,8 +1057,22 @@ pitchee_status_t pitchee_realtime_f0_process(
                 && center_sample <= stream->last_emitted_center_sample) {
                 continue;
             }
-            const double timestamp = static_cast<double>(center_sample)
-                / pitchee::kSampleRate;
+            const double center_sample_value = static_cast<double>(center_sample);
+            bool emit = false;
+            if (!stream->has_emitted) {
+                emit = true;
+                stream->next_output_sample = center_sample_value
+                    + stream->output_interval_samples;
+            } else if (center_sample_value + 1.0e-9 >= stream->next_output_sample) {
+                emit = true;
+                do {
+                    stream->next_output_sample += stream->output_interval_samples;
+                } while (stream->next_output_sample <= center_sample_value + 1.0e-9);
+            }
+            if (!emit) continue;
+
+            const double timestamp = stream->start_timestamp_seconds
+                + center_sample_value / pitchee::kSampleRate;
             const float f0 = pitch.pitch_hz[index];
             const float confidence = pitch.confidence[index];
             const bool voiced = confidence > thresholds.min_confidence
@@ -979,8 +1087,28 @@ pitchee_status_t pitchee_realtime_f0_process(
                 frame_callback(&frame, user_data);
             }
             stream->last_emitted_center_sample = center_sample;
+            if (stream->first_emitted_center_sample < 0) {
+                stream->first_emitted_center_sample = center_sample;
+            }
             stream->has_emitted = true;
+            ++stream->emitted_frames;
         }
+        const auto process_finished = std::chrono::steady_clock::now();
+        stream->last_preprocess_ms = std::chrono::duration<double, std::milli>(
+            preprocess_finished - process_started
+        ).count();
+        stream->last_model_ms = timing.model_ms;
+        stream->last_postprocess_ms = std::chrono::duration<double, std::milli>(
+            process_finished - inference_finished
+        ).count();
+        stream->last_total_ms = std::chrono::duration<double, std::milli>(
+            process_finished - process_started
+        ).count();
+        stream->total_preprocess_ms += stream->last_preprocess_ms;
+        stream->total_model_ms += stream->last_model_ms;
+        stream->total_postprocess_ms += stream->last_postprocess_ms;
+        stream->total_ms += stream->last_total_ms;
+        ++stream->inference_calls;
         stream->samples_since_inference = 0;
         return PITCHEE_SUCCESS;
     } catch (const std::exception& error) {
@@ -997,10 +1125,107 @@ void pitchee_realtime_f0_reset(pitchee_realtime_f0_t* stream) {
     stream->samples_since_inference = 0;
     stream->has_emitted = false;
     stream->last_emitted_center_sample = -1;
+    stream->first_emitted_center_sample = -1;
+    stream->next_output_sample = 0.0;
+    stream->process_calls = 0;
+    stream->inference_calls = 0;
+    stream->emitted_frames = 0;
+    stream->total_preprocess_ms = 0.0;
+    stream->total_model_ms = 0.0;
+    stream->total_postprocess_ms = 0.0;
+    stream->total_ms = 0.0;
+    stream->last_preprocess_ms = 0.0;
+    stream->last_model_ms = 0.0;
+    stream->last_postprocess_ms = 0.0;
+    stream->last_total_ms = 0.0;
 }
 
 void pitchee_realtime_f0_destroy(pitchee_realtime_f0_t* stream) {
     delete stream;
+}
+
+pitchee_status_t pitchee_realtime_f0_get_metadata(
+    const pitchee_realtime_f0_t* stream,
+    pitchee_realtime_f0_metadata_t* out_metadata,
+    char* error_message,
+    size_t error_message_capacity
+) {
+    if (!stream || !out_metadata
+        || out_metadata->struct_size < sizeof(*out_metadata)
+        || out_metadata->version != PITCHEE_REALTIME_F0_METADATA_VERSION) {
+        set_error(error_message, error_message_capacity, "invalid realtime F0 metadata argument");
+        return PITCHEE_ERROR_INVALID_ARGUMENT;
+    }
+    out_metadata->sample_rate = pitchee::kSampleRate;
+    out_metadata->frame_hop_samples = kSwiftF0FrameHopSamples;
+    out_metadata->frame_interval_seconds = kSwiftF0FrameIntervalSeconds;
+    out_metadata->min_context_samples = kRealtimeF0MinContextSamples;
+    out_metadata->model_output_rate_hz = kSwiftF0ModelOutputRateHz;
+    out_metadata->effective_output_rate_hz = stream->output_rate_hz;
+    return PITCHEE_SUCCESS;
+}
+
+pitchee_status_t pitchee_realtime_f0_warmup(
+    pitchee_realtime_f0_t* stream,
+    char* error_message,
+    size_t error_message_capacity
+) {
+    if (!stream || !stream->model) {
+        set_error(error_message, error_message_capacity, "invalid realtime F0 argument");
+        return PITCHEE_ERROR_INVALID_ARGUMENT;
+    }
+    try {
+        pitchee::Tensor input;
+        input.shape = {1, static_cast<int64_t>(stream->context_samples)};
+        input.values.assign(stream->context_samples, 0.0f);
+        stream->model->run_all({{"input_audio", std::move(input)}});
+        return PITCHEE_SUCCESS;
+    } catch (const std::exception& error) {
+        set_error(error_message, error_message_capacity, error.what());
+        return status_for_exception(error);
+    }
+}
+
+pitchee_status_t pitchee_realtime_f0_get_stats(
+    const pitchee_realtime_f0_t* stream,
+    pitchee_realtime_f0_stats_t* out_stats,
+    char* error_message,
+    size_t error_message_capacity
+) {
+    if (!stream || !out_stats
+        || out_stats->struct_size < sizeof(*out_stats)
+        || out_stats->version != PITCHEE_REALTIME_F0_STATS_VERSION) {
+        set_error(error_message, error_message_capacity, "invalid realtime F0 stats argument");
+        return PITCHEE_ERROR_INVALID_ARGUMENT;
+    }
+    out_stats->process_calls = stream->process_calls;
+    out_stats->inference_calls = stream->inference_calls;
+    out_stats->emitted_frames = stream->emitted_frames;
+    out_stats->total_ms = stream->total_ms;
+    out_stats->last_total_ms = stream->last_total_ms;
+    out_stats->average_total_ms = stream->inference_calls > 0
+        ? stream->total_ms / static_cast<double>(stream->inference_calls)
+        : 0.0;
+    out_stats->last_preprocess_ms = stream->last_preprocess_ms;
+    out_stats->average_preprocess_ms = stream->inference_calls > 0
+        ? stream->total_preprocess_ms / static_cast<double>(stream->inference_calls)
+        : 0.0;
+    out_stats->last_model_ms = stream->last_model_ms;
+    out_stats->average_model_ms = stream->inference_calls > 0
+        ? stream->total_model_ms / static_cast<double>(stream->inference_calls)
+        : 0.0;
+    out_stats->last_postprocess_ms = stream->last_postprocess_ms;
+    out_stats->average_postprocess_ms = stream->inference_calls > 0
+        ? stream->total_postprocess_ms / static_cast<double>(stream->inference_calls)
+        : 0.0;
+    const int64_t output_span_samples = stream->last_emitted_center_sample
+        - stream->first_emitted_center_sample;
+    out_stats->measured_output_hz = stream->emitted_frames > 1
+        && output_span_samples > 0
+        ? static_cast<double>(stream->emitted_frames - 1)
+            * pitchee::kSampleRate / static_cast<double>(output_span_samples)
+        : 0.0;
+    return PITCHEE_SUCCESS;
 }
 
 pitchee_status_t pitchee_score(

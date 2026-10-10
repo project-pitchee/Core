@@ -18,4 +18,6 @@ gradle -p platform/android/benchmark assembleDebug
 The `syncPitcheeModels` Gradle task copies `models/` into the APK assets before
 packaging. Model copies and build outputs are intentionally not tracked.
 
-The benchmark also expects `libomp.so` under `app/src/main/jniLibs/arm64-v8a/`.
+OpenMP is linked statically into `libpitchee_core.so`; the APK does not need a
+separate `libomp.so`. Android native libraries are linked with a 16 KB maximum
+page size for modern Android devices.

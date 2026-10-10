@@ -193,6 +193,11 @@ if(APPLE)
     )
 endif()
 
+if(ANDROID)
+    target_link_options(pitchee_core PUBLIC "-Wl,-z,max-page-size=16384")
+    target_link_options(pitchee_core PUBLIC "-static-openmp")
+endif()
+
 if(PITCHEE_BUILD_CLI)
     add_executable(pitchee_cli tools/pitchee_cli.cpp)
     target_link_libraries(pitchee_cli PRIVATE pitchee_core)

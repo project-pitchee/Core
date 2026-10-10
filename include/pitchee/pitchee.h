@@ -61,6 +61,55 @@ typedef void (*pitchee_f0_frame_callback_t)(
     void* user_data
 );
 
+#define PITCHEE_REALTIME_F0_OPTIONS_VERSION 1u
+#define PITCHEE_REALTIME_F0_METADATA_VERSION 1u
+#define PITCHEE_REALTIME_F0_STATS_VERSION 1u
+
+/*
+ * The stream owns a fixed context shape. To change context_samples or
+ * inference_hop_samples, create a new stream.
+ *
+ * output_rate_hz <= 0 selects the native SwiftF0 frame rate. A requested rate
+ * above the native frame rate is capped to it.
+ */
+typedef struct pitchee_realtime_f0_options_t {
+    uint32_t struct_size;
+    uint32_t version;
+    int32_t context_samples;
+    int32_t inference_hop_samples;
+    double output_rate_hz;
+    double start_timestamp_seconds;
+} pitchee_realtime_f0_options_t;
+
+typedef struct pitchee_realtime_f0_metadata_t {
+    uint32_t struct_size;
+    uint32_t version;
+    int32_t sample_rate;
+    int32_t frame_hop_samples;
+    double frame_interval_seconds;
+    int32_t min_context_samples;
+    double model_output_rate_hz;
+    double effective_output_rate_hz;
+} pitchee_realtime_f0_metadata_t;
+
+typedef struct pitchee_realtime_f0_stats_t {
+    uint32_t struct_size;
+    uint32_t version;
+    uint64_t process_calls;
+    uint64_t inference_calls;
+    uint64_t emitted_frames;
+    double total_ms;
+    double last_total_ms;
+    double average_total_ms;
+    double last_preprocess_ms;
+    double average_preprocess_ms;
+    double last_model_ms;
+    double average_model_ms;
+    double last_postprocess_ms;
+    double average_postprocess_ms;
+    double measured_output_hz;
+} pitchee_realtime_f0_stats_t;
+
 typedef struct pitchee_score_result_t {
     double base_score;
     double final_score;
@@ -137,6 +186,13 @@ PITCHEE_API pitchee_status_t pitchee_realtime_f0_create(
  * Each frame pointer is valid only for that callback invocation; copy values
  * needed afterward. The samples pointer is also borrowed only for this call.
  */
+PITCHEE_API pitchee_status_t pitchee_realtime_f0_create_with_options(
+    pitchee_analyzer_t* analyzer,
+    const pitchee_realtime_f0_options_t* options,
+    pitchee_realtime_f0_t** out_stream,
+    char* error_message,
+    size_t error_message_capacity
+);
 PITCHEE_API pitchee_status_t pitchee_realtime_f0_process(
     pitchee_realtime_f0_t* stream,
     const float* samples,
@@ -150,6 +206,26 @@ PITCHEE_API pitchee_status_t pitchee_realtime_f0_process(
 PITCHEE_API void pitchee_realtime_f0_reset(pitchee_realtime_f0_t* stream);
 
 PITCHEE_API void pitchee_realtime_f0_destroy(pitchee_realtime_f0_t* stream);
+
+PITCHEE_API pitchee_status_t pitchee_realtime_f0_get_metadata(
+    const pitchee_realtime_f0_t* stream,
+    pitchee_realtime_f0_metadata_t* out_metadata,
+    char* error_message,
+    size_t error_message_capacity
+);
+
+PITCHEE_API pitchee_status_t pitchee_realtime_f0_warmup(
+    pitchee_realtime_f0_t* stream,
+    char* error_message,
+    size_t error_message_capacity
+);
+
+PITCHEE_API pitchee_status_t pitchee_realtime_f0_get_stats(
+    const pitchee_realtime_f0_t* stream,
+    pitchee_realtime_f0_stats_t* out_stats,
+    char* error_message,
+    size_t error_message_capacity
+);
 
 /*
  * Pass NAN or a non-positive f0_hz when F0 is unavailable.

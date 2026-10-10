@@ -276,19 +276,30 @@ status = pitchee_analyze_wav_file(
 ### 实时 F0
 
 实时 F0 接口复用同一个 analyzer 中已加载的 SwiftF0 session。输入必须是
-16 kHz mono Float32 PCM；Core 不负责麦克风采集或重采样。
+16 kHz mono Float32 PCM；Core 不负责麦克风采集或重采样。旧的位置参数接口
+仍然保留，新集成应使用版本化 options 接口：
 
 ```c
-pitchee_realtime_f0_t* f0_stream = NULL;
+pitchee_realtime_f0_options_t options = {
+    .struct_size = sizeof(options),
+    .version = PITCHEE_REALTIME_F0_OPTIONS_VERSION,
+    .context_samples = 5120,          /* 320 ms inference context */
+    .inference_hop_samples = 256,     /* run the model every 16 ms */
+    .output_rate_hz = 30.0,           /* requested callback cadence */
+    .start_timestamp_seconds = 0.0,
+};
 
-pitchee_realtime_f0_create(
+pitchee_realtime_f0_t* f0_stream = NULL;
+pitchee_realtime_f0_create_with_options(
     analyzer,
-    5120,
-    256,
+    &options,
     &f0_stream,
     error,
     sizeof(error)
 );
+
+/* Optional: initialize the ncnn graph before recording starts. */
+pitchee_realtime_f0_warmup(f0_stream, error, sizeof(error));
 
 void f0_callback(const pitchee_f0_frame_t* frame, void* user_data) {
     if (frame->voiced) {
@@ -312,20 +323,41 @@ pitchee_realtime_f0_reset(f0_stream);
 pitchee_realtime_f0_destroy(f0_stream);
 ```
 
-默认参数：
+参数契约：
 
 | 字段 | 默认值 | 含义 |
 | --- | ---: | --- |
-| `context_samples` | `5120` | 每次推理使用的最近 320 ms 音频 |
-| `hop_samples` | `256` | 每收到 16 ms 新音频更新一次 |
+| `context_samples` | `5120` | 每次模型推理使用的最近音频长度，不是回调窗口 |
+| `inference_hop_samples` | `256` | 模型推理间隔，不是回调输出间隔 |
+| `output_rate_hz` | `0` | 回调目标帧率；`0` 表示 SwiftF0 原生 `62.5 Hz`，高于原生值会被封顶 |
+| `start_timestamp_seconds` | `0` | `timestamp_seconds` 的时间原点 |
 
-SwiftF0 每帧时间步长是 256 samples。Core 使用重叠上下文维持低频稳定性，
-并对重复帧按整数 sample index 去重。`voiced` 为 Core 的显示判定，当前要求
-置信度与 F0 必须通过 analyzer 创建时配置的 `min_confidence`、`min_f0_hz`
-和 `max_f0_hz` 阈值。零值表示使用默认值 `0.9 / 75 / 600 Hz`。
+SwiftF0 的模型帧步长是 `256 / 16000 = 16 ms`。Core 会在模型帧上做稳定选择，
+让平均回调帧率接近 `output_rate_hz`，但不会伪造高于模型帧率的新数据。实际配置值
+可通过 `pitchee_realtime_f0_get_metadata()` 查询：
 
-同一个实时流必须串行调用；不同流可以使用不同 analyzer。analyzer 的生命周期
-必须长于其创建的实时流。
+```text
+sample_rate = 16000
+frame_hop_samples = 256
+frame_interval_seconds = 0.016
+min_context_samples = 1024
+model_output_rate_hz = 62.5
+effective_output_rate_hz = requested/capped rate
+```
+
+`timestamp_seconds` 是所选模型帧在流时间轴上的时间，并加上
+`start_timestamp_seconds`。`pitchee_realtime_f0_reset()` 会把流时间归零，但保留
+配置的 `start_timestamp_seconds`。流创建后 `context_samples` 和
+`inference_hop_samples` 固定；修改窗口大小应创建新流。建议在录音前调用
+`pitchee_realtime_f0_warmup()`，尤其 ncnn 后端会按输入 shape 初始化内部缓冲。
+
+耗时统计可通过 `pitchee_realtime_f0_get_stats()` 获取，包含 preprocess、model、
+postprocess、total，以及根据实际输出帧计算的 `measured_output_hz`。
+
+同一个实时流必须串行调用。`frame_callback` 在 `pitchee_realtime_f0_process()`
+的调用线程上同步执行；回调期间不要阻塞，也不要重入同一个流的 process/reset/
+destroy。调用 `destroy()` 前必须确保所有 process 调用已经返回。analyzer 的生命
+周期必须长于其创建的实时流。
 
 ### Spectrum 频谱
 

@@ -121,15 +121,25 @@ decoded by the platform and passed to `pitchee_analyze_pcm()`.
 ## Realtime F0
 
 ```c
+pitchee_realtime_f0_options_t options = {
+    .struct_size = sizeof(options),
+    .version = PITCHEE_REALTIME_F0_OPTIONS_VERSION,
+    .context_samples = 5120,
+    .inference_hop_samples = 256,
+    .output_rate_hz = 30.0,
+    .start_timestamp_seconds = 0.0,
+};
+
 pitchee_realtime_f0_t* stream = NULL;
-pitchee_realtime_f0_create(
+pitchee_realtime_f0_create_with_options(
     analyzer,
-    5120,  /* context_samples; <= 0 uses 320 ms */
-    256,   /* hop_samples; <= 0 uses 16 ms */
+    &options,
     &stream,
     error,
     sizeof(error)
 );
+
+pitchee_realtime_f0_warmup(stream, error, sizeof(error));
 
 void on_f0_frame(const pitchee_f0_frame_t* frame, void* user_data);
 
@@ -151,12 +161,27 @@ Input is 16 kHz mono Float32 PCM. Each callback frame contains:
 
 | Field | Meaning |
 | --- | --- |
-| `timestamp_seconds` | Monotonic timestamp since the stream was reset. |
+| `timestamp_seconds` | Selected model-frame time plus `start_timestamp_seconds`. |
 | `f0_hz` | Raw SwiftF0 estimate. |
 | `confidence` | SwiftF0 confidence in `[0, 1]`. |
 | `voiced` | `1` when the analyzer's F0 thresholds are satisfied. |
 
-The analyzer must outlive every stream created from it.
+`context_samples` is the model input window. `inference_hop_samples` controls
+how often inference runs, not callback cadence. `output_rate_hz` selects a
+stable callback rate from the model frames and is capped at the model rate.
+Use `pitchee_realtime_f0_get_metadata()` instead of hard-coding model metadata.
+
+The stream shape is fixed after creation. To change the context or hop, destroy
+the stream and create another one. Call `pitchee_realtime_f0_warmup()` before
+recording when predictable ncnn startup latency is required.
+
+`frame_callback` runs synchronously on the thread calling
+`pitchee_realtime_f0_process()`. Calls for one stream must be serialized. The
+callback must not re-enter the same stream and must not call `destroy()` while a
+process call is active. The analyzer must outlive every stream created from it.
+
+`pitchee_realtime_f0_get_stats()` reports process/inference/frame counters,
+preprocess/model/postprocess/total timing, and measured output rate.
 
 ## Composite score
 

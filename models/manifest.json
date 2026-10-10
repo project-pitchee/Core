@@ -1,5 +1,12 @@
 {
   "modelVersion": "2026-10-ncnn-fp16",
+  "realtimeF0": {
+    "sampleRate": 16000,
+    "frameHopSamples": 256,
+    "frameIntervalSeconds": 0.016,
+    "minContextSamples": 1024,
+    "modelOutputRateHz": 62.5
+  },
   "files": {
     "ECAPA.onnx": "37779fcd2ff869d709dd474396df441fead9788a17d354be6827ae52fc1f9a75",
     "ECAPAFrontend.onnx": "76fad551184804d1d41ea3c8444952197edb332253e06cffd9244cb535828e09",
