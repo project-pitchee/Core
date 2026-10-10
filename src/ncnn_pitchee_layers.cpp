@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <complex>
 #include <cstddef>
 #include <cstring>
 #include <vector>
@@ -22,38 +21,33 @@ std::size_t mat_element_count(const ncnn::Mat& mat) {
         * static_cast<std::size_t>(mat.d);
 }
 
-void fft(std::vector<std::complex<double>>& values) {
-    const int size = static_cast<int>(values.size());
-    for (int index = 1, reverse = 0; index < size; ++index) {
-        int bit = size >> 1;
-        for (; reverse & bit; bit >>= 1) reverse ^= bit;
-        reverse ^= bit;
-        if (index < reverse) std::swap(values[index], values[reverse]);
-    }
-
-    for (int length = 2; length <= size; length <<= 1) {
-        const double angle = -2.0 * kPi / static_cast<double>(length);
-        const std::complex<double> root(std::cos(angle), std::sin(angle));
-        for (int start = 0; start < size; start += length) {
-            std::complex<double> factor(1.0, 0.0);
-            for (int offset = 0; offset < length / 2; ++offset) {
-                const std::complex<double> even = values[start + offset];
-                const std::complex<double> odd = values[start + offset + length / 2]
-                    * factor;
-                values[start + offset] = even + odd;
-                values[start + offset + length / 2] = even - odd;
-                factor *= root;
-            }
-        }
-    }
-}
-
 class PitcheeMagnitudeStft : public ncnn::Layer {
 public:
     PitcheeMagnitudeStft() {
         one_blob_only = true;
         support_inplace = false;
         support_packing = false;
+
+        window.resize(kWindowSize);
+        cos_table.resize(kWindowSize / 2);
+        sin_table.resize(kWindowSize / 2);
+        bit_reverse.resize(kHalfSize);
+        for (int index = 0; index < kWindowSize; ++index) {
+            window[index] = static_cast<float>(
+                0.5 - 0.5 * std::cos(2.0 * kPi * index / kWindowSize)
+            );
+        }
+        for (int index = 0; index < kWindowSize / 2; ++index) {
+            const double angle = 2.0 * kPi * index / kWindowSize;
+            cos_table[index] = static_cast<float>(std::cos(angle));
+            sin_table[index] = static_cast<float>(std::sin(angle));
+        }
+        for (int index = 1, reverse = 0; index < kHalfSize; ++index) {
+            int bit = kHalfSize >> 1;
+            for (; reverse & bit; bit >>= 1) reverse ^= bit;
+            reverse ^= bit;
+            bit_reverse[index] = reverse;
+        }
     }
 
     int forward(
@@ -61,12 +55,12 @@ public:
         ncnn::Mat& top_blob,
         const ncnn::Option& opt
     ) const override {
-        constexpr int window_size = 1024;
-        constexpr int hop_size = 256;
+        constexpr int window_size = kWindowSize;
+        constexpr int hop_size = kHopSize;
         const int input_size = static_cast<int>(mat_element_count(bottom_blob));
         if (input_size < window_size) return -1;
         const int frame_count = 1 + (input_size - window_size) / hop_size;
-        const int bin_count = window_size / 2 + 1;
+        const int bin_count = kBinCount;
         top_blob.create(
             frame_count,
             bin_count,
@@ -76,33 +70,90 @@ public:
         );
         if (top_blob.empty()) return -100;
 
-        std::vector<double> window(window_size);
-        for (int index = 0; index < window_size; ++index) {
-            window[index] = 0.5 - 0.5 * std::cos(
-                2.0 * kPi * static_cast<double>(index)
-                / static_cast<double>(window_size)
-            );
-        }
-
         const float* input_data = static_cast<const float*>(bottom_blob.data);
-        std::vector<std::complex<double>> frame(window_size);
+        std::vector<float> real(kHalfSize);
+        std::vector<float> imag(kHalfSize);
         for (int frame_index = 0; frame_index < frame_count; ++frame_index) {
             const int start = frame_index * hop_size;
-            for (int sample = 0; sample < window_size; ++sample) {
-                frame[sample] = std::complex<double>(
-                    static_cast<double>(input_data[start + sample]) * window[sample],
-                    0.0
+            // Pack even/odd real samples into a complex sequence, then recover
+            // the real-signal spectrum from its conjugate symmetry.
+            for (int sample = 0; sample < kHalfSize; ++sample) {
+                real[sample] = input_data[start + sample * 2] * window[sample * 2];
+                imag[sample] = input_data[start + sample * 2 + 1]
+                    * window[sample * 2 + 1];
+            }
+            fft_half(real, imag);
+            for (int bin = 0; bin < kHalfSize; ++bin) {
+                const int mirrored = (kHalfSize - bin) & (kHalfSize - 1);
+                const float zr = real[bin];
+                const float zi = imag[bin];
+                const float br = real[mirrored];
+                const float bi = -imag[mirrored];
+                const float er = 0.5f * (zr + br);
+                const float ei = 0.5f * (zi + bi);
+                const float dr = zr - br;
+                const float di = zi - bi;
+                const float or_value = 0.5f * di;
+                const float oi_value = -0.5f * dr;
+                const float wr = cos_table[bin];
+                const float wi = -sin_table[bin];
+                const float xr = er + wr * or_value - wi * oi_value;
+                const float xi = ei + wr * oi_value + wi * or_value;
+                top_blob.channel(0).row(bin)[frame_index] = std::sqrt(
+                    xr * xr + xi * xi
                 );
             }
-            fft(frame);
-            for (int bin = 0; bin < bin_count; ++bin) {
-                top_blob.channel(0).row(bin)[frame_index] = static_cast<float>(
-                    std::abs(frame[bin])
-                );
-            }
+            const float nyquist = std::abs(real[0] - imag[0]);
+            top_blob.channel(0).row(kHalfSize)[frame_index] = nyquist;
         }
         return 0;
     }
+
+private:
+    static constexpr int kWindowSize = 1024;
+    static constexpr int kHopSize = 256;
+    static constexpr int kBinCount = kWindowSize / 2 + 1;
+    static constexpr int kHalfSize = kWindowSize / 2;
+
+    void fft_half(
+        std::vector<float>& real,
+        std::vector<float>& imag
+    ) const {
+        for (int index = 1; index < kHalfSize; ++index) {
+            const int reverse = bit_reverse[index];
+            if (index < reverse) {
+                std::swap(real[index], real[reverse]);
+                std::swap(imag[index], imag[reverse]);
+            }
+        }
+
+        for (int length = 2; length <= kHalfSize; length <<= 1) {
+            const int half = length >> 1;
+            const int table_stride = kWindowSize / length;
+            for (int start = 0; start < kHalfSize; start += length) {
+                for (int offset = 0; offset < half; ++offset) {
+                    const int table_index = offset * table_stride;
+                    const float wr = cos_table[table_index];
+                    const float wi = -sin_table[table_index];
+                    const int even = start + offset;
+                    const int odd = even + half;
+                    const float tr = wr * real[odd] - wi * imag[odd];
+                    const float ti = wr * imag[odd] + wi * real[odd];
+                    const float er = real[even];
+                    const float ei = imag[even];
+                    real[even] = er + tr;
+                    imag[even] = ei + ti;
+                    real[odd] = er - tr;
+                    imag[odd] = ei - ti;
+                }
+            }
+        }
+    }
+
+    std::vector<float> window;
+    std::vector<float> cos_table;
+    std::vector<float> sin_table;
+    std::vector<int> bit_reverse;
 };
 
 DEFINE_LAYER_CREATOR(PitcheeMagnitudeStft)
